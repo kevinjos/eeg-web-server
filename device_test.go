@@ -12,7 +12,8 @@ func TestNewDevice(t *testing.T) {
 	byteStream := make(chan byte)
 	writeStream := make(chan string)
 	quit := make(chan bool)
-	d := NewDevice(loc, baud, readtimeout, byteStream, writeStream, quit)
+	reset := make(chan bool)
+	d := NewDevice(loc, baud, readtimeout, byteStream, writeStream, quit, reset)
 	if d.Baud != baud {
 		t.Error(
 			"expecting", baud,

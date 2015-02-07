@@ -1,19 +1,15 @@
 package main
 
-import (
-	"fmt"
-)
-
 type Packet struct {
-	Header, Footer, seqNum                                 byte
-	chan1, chan2, chan3, chan4, chan5, chan6, chan7, chan8 float64
-	accX, accY, accZ                                       int16
+	header, footer, seqNum                                 byte
+	Chan1, Chan2, Chan3, Chan4, Chan5, Chan6, Chan7, Chan8 float64
+	AccX, AccY, AccZ                                       int16
 }
 
 func NewPacket() *Packet {
 	return &Packet{
-		Header: '\xa0',
-		Footer: '\xc0',
+		header: '\xa0',
+		footer: '\xc0',
 	}
 }
 
@@ -51,17 +47,17 @@ func convert16bitTo32bit(a []byte) int16 {
 func encodePacket(p *[33]byte) *Packet {
 	packet := NewPacket()
 	packet.seqNum = p[1]
-	packet.chan1 = scaleToVolts(convert24bitTo32bit(p[2:5]))
-	packet.chan2 = scaleToVolts(convert24bitTo32bit(p[5:8]))
-	packet.chan3 = scaleToVolts(convert24bitTo32bit(p[8:11]))
-	packet.chan4 = scaleToVolts(convert24bitTo32bit(p[11:14]))
-	packet.chan5 = scaleToVolts(convert24bitTo32bit(p[14:17]))
-	packet.chan6 = scaleToVolts(convert24bitTo32bit(p[17:20]))
-	packet.chan7 = scaleToVolts(convert24bitTo32bit(p[20:23]))
-	packet.chan8 = scaleToVolts(convert24bitTo32bit(p[23:26]))
-	packet.accX = convert16bitTo32bit(p[26:28])
-	packet.accY = convert16bitTo32bit(p[28:30])
-	packet.accZ = convert16bitTo32bit(p[30:32])
+	packet.Chan1 = scaleToVolts(convert24bitTo32bit(p[2:5]))
+	packet.Chan2 = scaleToVolts(convert24bitTo32bit(p[5:8]))
+	packet.Chan3 = scaleToVolts(convert24bitTo32bit(p[8:11]))
+	packet.Chan4 = scaleToVolts(convert24bitTo32bit(p[11:14]))
+	packet.Chan5 = scaleToVolts(convert24bitTo32bit(p[14:17]))
+	packet.Chan6 = scaleToVolts(convert24bitTo32bit(p[17:20]))
+	packet.Chan7 = scaleToVolts(convert24bitTo32bit(p[20:23]))
+	packet.Chan8 = scaleToVolts(convert24bitTo32bit(p[23:26]))
+	packet.AccX = convert16bitTo32bit(p[26:28])
+	packet.AccY = convert16bitTo32bit(p[28:30])
+	packet.AccZ = convert16bitTo32bit(p[30:32])
 	return packet
 }
 
@@ -92,7 +88,7 @@ func decodeStream(byteStream chan byte, packetStream chan *Packet) {
 
 	for {
 		b := <-byteStream
-		if b == sampPacket.Header {
+		if b == sampPacket.header {
 			thisPacket[0] = b
 			thisPacket[1] = <-byteStream
 
@@ -108,15 +104,15 @@ func decodeStream(byteStream chan byte, packetStream chan *Packet) {
 			}
 
 			footer := <-byteStream
-			if footer != sampPacket.Footer {
-				fmt.Println("expected footer [", sampPacket.Footer, "] and received [", footer, "]")
-				fmt.Println(thisPacket)
-				fmt.Println(lastPacket)
+			if footer != sampPacket.footer {
+				//fmt.Println("expected footer [", sampPacket.footer, "] and received [", footer, "]")
+				//fmt.Println(thisPacket)
+				//fmt.Println(lastPacket)
 			}
 			thisPacket[32] = footer
 
 			if seqDiff != 1 {
-				fmt.Println("Last seen sequence number [", lastPacket[1], "]. This sequence number [", thisPacket[1], "]")
+				//fmt.Println("Last seen sequence number [", lastPacket[1], "]. This sequence number [", thisPacket[1], "]")
 				for seqDiff > 1 {
 					lastPacket[1]++
 					packetStream <- encodePacket(&lastPacket)

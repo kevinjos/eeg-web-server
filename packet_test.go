@@ -106,11 +106,11 @@ func TestDifference(t *testing.T) {
 
 func TestNewPacket(t *testing.T) {
 	p := NewPacket()
-	if p.Header != '\xa0' || p.Footer != '\xc0' {
+	if p.header != '\xa0' || p.footer != '\xc0' {
 		t.Error(
 			"For packet header and packet footer",
 			"expected \xa0 and \xc0",
-			"got", p.Header, "and", p.Footer,
+			"got", p.header, "and", p.footer,
 		)
 	}
 }

@@ -12,74 +12,78 @@ type Device struct {
 	Location    string
 	Baud        int
 	ReadTimeout time.Duration
-	WriteStream chan string
-	ByteStream  chan byte
-	reset       chan bool
-	Quit        chan bool
-	Conn        io.ReadWriteCloser
+	writeStream chan string
+	byteStream  chan byte
+	resetButton chan bool
+	quitButton  chan bool
+	conn        io.ReadWriteCloser
 }
 
 func NewDevice(Location string, Baud int, ReadTimeout time.Duration,
-	ByteStream chan byte, WriteStream chan string, Quit chan bool) *Device {
-	resetChan := make(chan bool)
+	byteStream chan byte, writeStream chan string, quitButton chan bool, resetButton chan bool) *Device {
 	d := &Device{
 		Location:    Location,
 		Baud:        Baud,
 		ReadTimeout: ReadTimeout,
-		ByteStream:  ByteStream,
-		WriteStream: WriteStream,
-		Quit:        Quit,
-		reset:       resetChan,
+		byteStream:  byteStream,
+		writeStream: writeStream,
+		quitButton:  quitButton,
+		resetButton: resetButton,
 	}
 	return d
 }
 
-func (d *Device) ReadWriteClose() {
+func (d *Device) readWriteClose() {
 	streamingData := false
 	buf := make([]byte, 1)
 	for {
 		select {
-		case s := <-d.WriteStream:
-			d.Write(s)
+		case s := <-d.writeStream:
+			d.write(s)
 			switch {
-			case s == "s":
+			case s == "s" || s == "v":
 				streamingData = false
 			case s == "b":
 				streamingData = true
 			}
-		case <-d.Quit:
+		case call := <-d.resetButton:
+			if call == true {
+				go d.reset()
+			} else {
+				d.read(buf)
+			}
+		case <-d.quitButton:
 			defer func() {
-				d.Write("s")
-				d.Conn.Close()
+				d.write("s")
+				d.conn.Close()
 				fmt.Println("Safely closed the device")
 				os.Exit(1)
 			}()
 			return
-		case <-d.reset:
-			d.Read(buf)
 		default:
-			if streamingData == true {
-				d.Read(buf)
+			switch {
+			case streamingData == true:
+				d.read(buf)
 			}
 		}
 	}
 }
 
-func (d *Device) Read(buf []byte) {
-	n, err := d.Conn.Read(buf)
+func (d *Device) read(buf []byte) {
+	n, err := d.conn.Read(buf)
 	if err != nil {
 		fmt.Println("Error reading [", n, "] bytes from serial device: [", err, "]")
 	} else if n > 0 {
 		for i := 0; i < n; i++ {
-			d.ByteStream <- buf[i]
+			d.byteStream <- buf[i]
 		}
 	}
 }
 
-func (d *Device) Write(s string) {
+func (d *Device) write(s string) {
 	wb := []byte(s)
-	n, err := d.Conn.Write(wb)
-	time.Sleep(600 * time.Millisecond)
+	n, err := d.conn.Write(wb)
+	time.Sleep(1000 * time.Millisecond)
 	if err != nil {
 		fmt.Println("Error writing [", n, "] bytes to serial device: [", err, "]")
 	} else if n > 0 {
@@ -88,23 +92,24 @@ func (d *Device) Write(s string) {
 	return
 }
 
-func (d *Device) Open() {
+func (d *Device) open() {
 	config := &serial.Config{Name: d.Location, Baud: d.Baud, ReadTimeout: d.ReadTimeout}
 	conn, err := serial.OpenPort(config)
 	if err != nil {
 		fmt.Println("Error conneting to serial device: [", err, "]")
 		os.Exit(1)
 	}
-	d.Conn = conn
-	go d.ReadWriteClose()
-	d.Reset()
+	d.conn = conn
+	go d.readWriteClose()
+	d.reset()
 }
 
 //Reset sends the reset message to the serial device,
 //waits one seconds and then reads up to the init
 //message [$$$]. Should find a better way than firing
 //off a read go routine every time.
-func (d *Device) Reset() {
+//TODO: figure out why cpu usage soars during reset routine
+func (d *Device) reset() {
 	var (
 		scrolling  [3]byte
 		init_array [3]byte
@@ -113,19 +118,27 @@ func (d *Device) Reset() {
 
 	init_array = [3]byte{'\x24', '\x24', '\x24'}
 
-	d.WriteStream <- "s"
-	d.WriteStream <- "v"
-	d.reset <- true
+	d.writeStream <- "s"
+	time.Sleep(1000 * time.Millisecond)
+	d.writeStream <- "v"
+	time.Sleep(1000 * time.Millisecond)
 
 	for {
-		b := <-d.ByteStream
-		fmt.Print(string(b))
-		scrolling[index%3] = b
-		index++
-		if scrolling == init_array {
-			return
-		} else {
-			d.reset <- true
+		select {
+		case b := <-d.byteStream:
+			if b < 123 {
+				fmt.Print(string(b))
+				scrolling[index%3] = b
+				index++
+			}
+		default:
+			if scrolling == init_array {
+				fmt.Print("\n")
+				d.writeStream <- "b"
+				return
+			} else {
+				d.resetButton <- false
+			}
 		}
 	}
 }
