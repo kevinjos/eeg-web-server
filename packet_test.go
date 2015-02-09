@@ -65,9 +65,10 @@ var testsscale = []testscalepair{
 	{-8388607, -0.1875},
 }
 
+//TODO:Test differnt gain factors
 func TestScale(t *testing.T) {
 	for _, pair := range testsscale {
-		res := scaleToVolts(pair.data)
+		res := scaleToVolts(pair.data, 24)
 		if res != pair.result {
 			t.Error(
 				"For", pair.data,
@@ -125,8 +126,9 @@ var testsencode = []testencodepair{
 }
 
 func TestEncodePacket(t *testing.T) {
+	mc := NewMindController()
 	for _, pair := range testsencode {
-		res := encodePacket(pair.p)
+		res := mc.encodePacket(pair.p)
 		if *res != *pair.result {
 			t.Error(
 				"For x", pair.p,
@@ -138,11 +140,12 @@ func TestEncodePacket(t *testing.T) {
 }
 
 func TestDecodeStream(t *testing.T) {
+	mc := NewMindController()
 	byteStream := make(chan byte)
 	packetStream := make(chan *Packet)
 	packet_a := [33]byte{}
 
-	go decodeStream(byteStream, packetStream)
+	go mc.decodeStream(byteStream, packetStream)
 
 	byteStream <- '\x00' //Send non header byte onto bytestream
 	byteStream <- '\xa0' //Send header byte onto bytestream as header
@@ -156,7 +159,7 @@ func TestDecodeStream(t *testing.T) {
 	byteStream <- '\xc0' //Send footer byte
 
 	packet := <-packetStream
-	expectedPacket := encodePacket(&packet_a)
+	expectedPacket := mc.encodePacket(&packet_a)
 
 	if *packet != *expectedPacket {
 		t.Error(
@@ -179,7 +182,7 @@ func TestDecodeStream(t *testing.T) {
 	byteStream <- '\xc0' //Send footer byte
 
 	packet = <-packetStream
-	expectedPacket = encodePacket(&packet_a)
+	expectedPacket = mc.encodePacket(&packet_a)
 
 	if *packet != *expectedPacket {
 		t.Error(

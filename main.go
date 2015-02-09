@@ -2,52 +2,58 @@ package main
 
 import (
 	"flag"
-	"fmt"
+	"log"
 	"net/http"
-	"os"
-	"os/signal"
 	"time"
 )
 
-var addr = flag.String("addr", ":8888", "http service address")
 var mc *MindController = NewMindController()
+var addr = flag.String("addr", ":8888", "http service address")
 
-func main() {
-	//Capture close and exit on interrupt signal
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	go func() {
-		switch {
-		case os.Interrupt == <-c:
-			mc.QuitButton <- true
-		}
-	}()
+const (
+	readBufferSize  = 1024
+	packetBatchSize = 100
+)
 
+func sendPackets() {
 	last_second := time.Now().UnixNano()
 	second := time.Now().UnixNano()
 
-	http.HandleFunc("/", rootHandler)
-	http.HandleFunc("/ws", wsPacketHandler)
-	http.HandleFunc("/reset", resetHandler)
-	http.HandleFunc("/start", startHandler)
-	http.HandleFunc("/stop", stopHandler)
-	http.HandleFunc("/close", closeHandler)
+	go mc.serialDevice.readWriteClose()
 
-	mc.Open()
-	go h.run()
-	go http.ListenAndServe(*addr, nil)
-
-	for i := 0; ; i++ {
+	pb := NewPacketBatcher()
+	for i := 1; ; i++ {
 		p := <-mc.PacketStream
+		pb.packets[i%packetBatchSize] = p
 
-		if i%1250 == 0 {
-			h.broadcast <- p
+		if i%packetBatchSize == 0 {
+			pb.batch()
+			h.broadcast <- pb
+			pb = NewPacketBatcher()
+		}
+		if i%250 == 0 {
 			second = time.Now().UnixNano()
-			fmt.Println(second-last_second, "nanoseconds have elapsed between 1250 samples.")
+			log.Println(second-last_second, "nanoseconds have elapsed between 1250 samples.")
+			log.Println("Gain changer:", mc.gain)
 			//fmt.Println("Chans 1-4:", p.chan1, p.chan2, p.chan3, p.chan4)
 			//fmt.Println("Chans 5-8:", p.chan5, p.chan6, p.chan7, p.chan8)
 			//fmt.Println("Acc Data:", p.accX, p.accY, p.accZ)
 			last_second = second
 		}
+	}
+}
+
+func main() {
+	http.HandleFunc("/", rootHandler)
+	http.HandleFunc("/x/", commandHandler)
+	http.HandleFunc("/ws", wsPacketHandler)
+	http.HandleFunc("/open", openHandler)
+	http.HandleFunc("/reset", resetHandler)
+	http.HandleFunc("/start", startHandler)
+	http.HandleFunc("/stop", stopHandler)
+	http.HandleFunc("/close", closeHandler)
+	go h.run()
+	for {
+		http.ListenAndServe(*addr, nil)
 	}
 }

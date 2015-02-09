@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"github.com/gorilla/websocket"
+	"log"
 	"net/http"
 	"time"
 )
@@ -20,11 +20,11 @@ const (
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+	WriteBufferSize: 4096,
 }
 
 type WSConn struct {
-	send   chan *Packet
+	send   chan *PacketBatcher
 	wsConn *websocket.Conn
 }
 
@@ -32,10 +32,10 @@ func NewWSConn(w http.ResponseWriter, r *http.Request) (*WSConn, error) {
 	if r.Method != "GET" {
 		http.Error(w, "Method not allowed", 405)
 	}
-	wc := make(chan *Packet)
+	wc := make(chan *PacketBatcher)
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		fmt.Println("Error upgrading ws connection.", err)
+		log.Println("Error upgrading ws connection.", err)
 	}
 	return &WSConn{
 		wsConn: conn,
@@ -48,7 +48,7 @@ func (ws *WSConn) write(mt int, payload []byte) error {
 	return ws.wsConn.WriteMessage(mt, payload)
 }
 
-func (ws *WSConn) writeJson(payload *Packet) error {
+func (ws *WSConn) writeJson(payload *PacketBatcher) error {
 	ws.wsConn.SetWriteDeadline(time.Now().Add(writeWait))
 	return ws.wsConn.WriteJSON(payload)
 }

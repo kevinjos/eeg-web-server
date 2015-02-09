@@ -9,7 +9,8 @@
 					console.log("closing")
 				}
 				conn.onmessage = function(evt) {
-					console.log("received data:", evt.data)
+					data = JSON.parse(evt.data)
+					console.log("received data:", data.Chans)
 				}
 				conn.onopen = function(evt) {
 					console.log("opening")
@@ -20,22 +21,120 @@
 		</script>
 		<script type="text/javascript">
 			jQuery(document).ready(function() {
-				jQuery("input[type=button]").click(function() {
+				jQuery("#streamcommands :input").click(function() {
 					var postURL = $(this).attr('href');
 					jQuery.ajax({	type:"POST",
 												url:postURL
 											});
-				})
+				});
+
+				jQuery("#chantoggle :input").click(function() {
+					var postURL = $(this).attr('href') + 
+												$(this).attr('value') + '/' + 
+												$(this).is(':checked');
+					jQuery.ajax({	type:"POST",
+												url:postURL
+											});
+				});
+
+				jQuery("#complexcommands #update").click(function() {
+					var chan = $("form#longcommand #channel").val()
+					var postURL = $(this).attr('href') + chan + "/x" + chan +
+												$("form#longcommand #power").val() +
+												$("form#longcommand #gain").val() +
+												$("form#longcommand #input").val() +
+												$("form#longcommand #bias").val() +
+												$("form#longcommand #srb2").val() +
+												$("form#longcommand #srb1").val() +
+												"X"
+					jQuery.ajax({	type:"POST",
+												url:postURL
+											});
+				});
+
 			});
 		</script>
 	</head>
+
 	<body>
-		<p>
-		Hello World
-		</p>
-		<input type="button" value="reset" href="http://{{$}}/reset">
-		<input type="button" value="start" href="http://{{$}}/start">
-		<input type="button" value="stop" href="http://{{$}}/stop">
-		<input type="button" value="close" href="http://{{$}}/close">
+
+		<div id="streamcommands" align="center">
+			<input type="button" value="open" href="http://{{$}}/open">
+			<input type="button" value="reset" href="http://{{$}}/reset">
+			<input type="button" value="start" href="http://{{$}}/start">
+			<input type="button" value="stop" href="http://{{$}}/stop">
+			<input type="button" value="close" href="http://{{$}}/close">
+		</div>
+
+		<div id="chantoggle" align="left"><br>
+			<input type="checkbox" value="1" href="http://{{$}}/x/" checked>Channel 1<br> 
+			<input type="checkbox" value="2" href="http://{{$}}/x/" checked>Channel 2<br>
+			<input type="checkbox" value="3" href="http://{{$}}/x/" checked>Channel 3<br>
+			<input type="checkbox" value="4" href="http://{{$}}/x/" checked>Channel 4<br>
+			<input type="checkbox" value="5" href="http://{{$}}/x/" checked>Channel 5<br>
+			<input type="checkbox" value="6" href="http://{{$}}/x/" checked>Channel 6<br>
+			<input type="checkbox" value="7" href="http://{{$}}/x/" checked>Channel 7<br>
+			<input type="checkbox" value="8" href="http://{{$}}/x/" checked>Channel 8<br>
+		<br>
+		</div>
+
+		<div id="complexcommands" align="left">
+			<form id="longcommand">
+				<input type="button" id="update" value="update" href="http://{{$}}/x/">
+
+				<select id="channel">
+					<option value="0">All Channels</option>
+					<option value="1">Channel 1</option>
+					<option value="2">Channel 2</option>
+					<option value="3">Channel 3</option>
+					<option value="4">Channel 4</option>
+					<option value="5">Channel 5</option>
+					<option value="6">Channel 6</option>
+					<option value="7">Channel 7</option>
+					<option value="8">Channel 8</option>
+				</select>
+
+				<select id="power">
+					<option value="0">Power On</option>
+					<option value="1">Power Off</option>
+				</select>
+
+				<select id="gain">
+					<option value="6">24x gain</option>
+					<option value="5">12x gain</option>
+					<option value="4">8x gain</option>
+					<option value="3">6x gain</option>
+					<option value="2">4x gain</option>
+					<option value="1">2x gain</option>
+					<option value="0">1x gain</option>
+				</select>
+
+				<select id="input">
+					<option value="0">Normal</option>
+					<option value="1">Shorted</option>
+					<option value="2">Bias meas</option>
+					<option value="3">MVDD</option>
+					<option value="4">Temp</option>
+					<option value="5">Test signal</option>
+					<option value="6">Bias DRP</option>
+					<option value="7">Bias DRN</option>
+				</select>
+
+				<select id="bias">
+					<option value="1">Include in BIAS</option>
+					<option value="0">Exclude from BIAS</option>
+				</select>
+
+				<select id="srb2">
+					<option value="1">Connect SRB2</option>
+					<option value="0">Disconn SRB2</option>
+				</select>
+
+				<select id="srb1">
+					<option value="0">Disconn SRB1</option>
+					<option value="1">Connect SRB1</option>
+				</select>
+			</form>
+		</div>
 	</body>
 </html>

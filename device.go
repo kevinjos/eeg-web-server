@@ -1,9 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"github.com/tarm/goserial"
 	"io"
+	"log"
 	"os"
 	"time"
 )
@@ -35,7 +35,6 @@ func NewDevice(Location string, Baud int, ReadTimeout time.Duration,
 
 func (d *Device) readWriteClose() {
 	streamingData := false
-	buf := make([]byte, 1)
 	for {
 		select {
 		case s := <-d.writeStream:
@@ -46,33 +45,32 @@ func (d *Device) readWriteClose() {
 			case s == "b":
 				streamingData = true
 			}
-		case call := <-d.resetButton:
-			if call == true {
-				go d.reset()
-			} else {
-				d.read(buf)
-			}
+		case <-d.resetButton:
+			d.reset()
 		case <-d.quitButton:
 			defer func() {
 				d.write("s")
 				d.conn.Close()
-				fmt.Println("Safely closed the device")
+				log.Println("Safely closed the device")
 				os.Exit(1)
 			}()
 			return
 		default:
 			switch {
 			case streamingData == true:
-				d.read(buf)
+				d.read()
+			case streamingData == false:
+				time.Sleep(100 * time.Millisecond)
 			}
 		}
 	}
 }
 
-func (d *Device) read(buf []byte) {
+func (d *Device) read() {
+	buf := make([]byte, readBufferSize-1)
 	n, err := d.conn.Read(buf)
 	if err != nil {
-		fmt.Println("Error reading [", n, "] bytes from serial device: [", err, "]")
+		log.Println("Error reading [", n, "] bytes from serial device: [", err, "]")
 	} else if n > 0 {
 		for i := 0; i < n; i++ {
 			d.byteStream <- buf[i]
@@ -82,12 +80,11 @@ func (d *Device) read(buf []byte) {
 
 func (d *Device) write(s string) {
 	wb := []byte(s)
-	n, err := d.conn.Write(wb)
-	time.Sleep(1000 * time.Millisecond)
-	if err != nil {
-		fmt.Println("Error writing [", n, "] bytes to serial device: [", err, "]")
-	} else if n > 0 {
-		fmt.Println("Wrote [", n, "] byte", wb, "to the serial device")
+	if n, err := d.conn.Write(wb); err != nil {
+		log.Println("Error writing [", n, "] bytes to serial device: [", err, "]")
+	} else {
+		log.Println("Wrote [", n, "] byte", wb, "to the serial device")
+		time.Sleep(1000 * time.Millisecond)
 	}
 	return
 }
@@ -96,19 +93,16 @@ func (d *Device) open() {
 	config := &serial.Config{Name: d.Location, Baud: d.Baud, ReadTimeout: d.ReadTimeout}
 	conn, err := serial.OpenPort(config)
 	if err != nil {
-		fmt.Println("Error conneting to serial device: [", err, "]")
+		log.Println("Error conneting to serial device: [", err, "]")
 		os.Exit(1)
 	}
 	d.conn = conn
-	go d.readWriteClose()
 	d.reset()
 }
 
-//Reset sends the reset message to the serial device,
-//waits one seconds and then reads up to the init
-//message [$$$]. Should find a better way than firing
-//off a read go routine every time.
-//TODO: figure out why cpu usage soars during reset routine
+//Reset sends the stop and reset message to the serial device,
+//reads up to the init message [$$$], then sends the message
+//to start the binary data stream
 func (d *Device) reset() {
 	var (
 		scrolling  [3]byte
@@ -118,26 +112,20 @@ func (d *Device) reset() {
 
 	init_array = [3]byte{'\x24', '\x24', '\x24'}
 
-	d.writeStream <- "s"
-	time.Sleep(1000 * time.Millisecond)
-	d.writeStream <- "v"
-	time.Sleep(1000 * time.Millisecond)
+	d.write("s")
+	d.write("v")
 
 	for {
 		select {
 		case b := <-d.byteStream:
-			if b < 123 {
-				fmt.Print(string(b))
-				scrolling[index%3] = b
-				index++
-			}
+			scrolling[index%3] = b
+			index++
 		default:
 			if scrolling == init_array {
-				fmt.Print("\n")
 				d.writeStream <- "b"
 				return
 			} else {
-				d.resetButton <- false
+				d.read()
 			}
 		}
 	}

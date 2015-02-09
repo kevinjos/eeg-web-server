@@ -1,5 +1,53 @@
 package main
 
+import (
+	"strconv"
+)
+
+type PacketBatcher struct {
+	packets [packetBatchSize]*Packet
+	Chans   map[string][packetBatchSize]float64
+}
+
+func (pb *PacketBatcher) batch() {
+	var (
+		chan1 [packetBatchSize]float64
+		chan2 [packetBatchSize]float64
+		chan3 [packetBatchSize]float64
+		chan4 [packetBatchSize]float64
+		chan5 [packetBatchSize]float64
+		chan6 [packetBatchSize]float64
+		chan7 [packetBatchSize]float64
+		chan8 [packetBatchSize]float64
+		chans = [8]*[packetBatchSize]float64{&chan1, &chan2, &chan3, &chan4, &chan5, &chan6, &chan7, &chan8}
+	)
+	for i, p := range pb.packets {
+		chan1[i] = p.Chan1
+		chan2[i] = p.Chan2
+		chan3[i] = p.Chan3
+		chan4[i] = p.Chan4
+		chan5[i] = p.Chan5
+		chan6[i] = p.Chan6
+		chan7[i] = p.Chan7
+		chan8[i] = p.Chan8
+	}
+	var emptyChan [packetBatchSize]float64
+	for i, v := range chans {
+		if *v != emptyChan {
+			pb.Chans["Chan"+strconv.Itoa(i+1)] = *v
+		}
+	}
+}
+
+func NewPacketBatcher() *PacketBatcher {
+	chans := make(map[string][packetBatchSize]float64)
+	var pkts [packetBatchSize]*Packet
+	return &PacketBatcher{
+		Chans:   chans,
+		packets: pkts,
+	}
+}
+
 type Packet struct {
 	header, footer, seqNum                                 byte
 	Chan1, Chan2, Chan3, Chan4, Chan5, Chan6, Chan7, Chan8 float64
@@ -26,8 +74,8 @@ func convert24bitTo32bit(c []byte) int32 {
 	return int32(x)
 }
 
-func scaleToVolts(c int32) float64 {
-	scaleFac := 4.5 / 24 / ((1 << 23) - 1)
+func scaleToVolts(c int32, gain float64) float64 {
+	scaleFac := 4.5 / gain / ((1 << 23) - 1)
 	return scaleFac * float64(c)
 }
 
@@ -44,23 +92,6 @@ func convert16bitTo32bit(a []byte) int16 {
 	return int16(x)
 }
 
-func encodePacket(p *[33]byte) *Packet {
-	packet := NewPacket()
-	packet.seqNum = p[1]
-	packet.Chan1 = scaleToVolts(convert24bitTo32bit(p[2:5]))
-	packet.Chan2 = scaleToVolts(convert24bitTo32bit(p[5:8]))
-	packet.Chan3 = scaleToVolts(convert24bitTo32bit(p[8:11]))
-	packet.Chan4 = scaleToVolts(convert24bitTo32bit(p[11:14]))
-	packet.Chan5 = scaleToVolts(convert24bitTo32bit(p[14:17]))
-	packet.Chan6 = scaleToVolts(convert24bitTo32bit(p[17:20]))
-	packet.Chan7 = scaleToVolts(convert24bitTo32bit(p[20:23]))
-	packet.Chan8 = scaleToVolts(convert24bitTo32bit(p[23:26]))
-	packet.AccX = convert16bitTo32bit(p[26:28])
-	packet.AccY = convert16bitTo32bit(p[28:30])
-	packet.AccZ = convert16bitTo32bit(p[30:32])
-	return packet
-}
-
 //difference calculates the difference in sequence numbers
 //accounting for wrap around of uint8s
 func difference(x uint8, y uint8) uint8 {
@@ -73,55 +104,4 @@ func difference(x uint8, y uint8) uint8 {
 		return 255
 	}
 	return (255 - y) + x + 1
-}
-
-//decodeStream implements the openbci packet protocol to
-//assemble packets and sends packet arrays onto the packetStream
-func decodeStream(byteStream chan byte, packetStream chan *Packet) {
-	var (
-		thisPacket [33]byte
-		lastPacket [33]byte
-		seqDiff    uint8
-		sampPacket *Packet
-	)
-	sampPacket = NewPacket()
-
-	for {
-		b := <-byteStream
-		if b == sampPacket.header {
-			thisPacket[0] = b
-			thisPacket[1] = <-byteStream
-
-			switch {
-			case lastPacket != [33]byte{}:
-				seqDiff = difference(thisPacket[1], lastPacket[1])
-			case lastPacket == [33]byte{}:
-				seqDiff = 1
-			}
-
-			for i := 2; i < 32; i++ {
-				thisPacket[i] = <-byteStream
-			}
-
-			footer := <-byteStream
-			if footer != sampPacket.footer {
-				//fmt.Println("expected footer [", sampPacket.footer, "] and received [", footer, "]")
-				//fmt.Println(thisPacket)
-				//fmt.Println(lastPacket)
-			}
-			thisPacket[32] = footer
-
-			if seqDiff != 1 {
-				//fmt.Println("Last seen sequence number [", lastPacket[1], "]. This sequence number [", thisPacket[1], "]")
-				for seqDiff > 1 {
-					lastPacket[1]++
-					packetStream <- encodePacket(&lastPacket)
-					seqDiff--
-				}
-			}
-
-			packetStream <- encodePacket(&thisPacket)
-			lastPacket = thisPacket
-		}
-	}
 }
