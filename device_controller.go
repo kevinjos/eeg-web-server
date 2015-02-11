@@ -121,3 +121,65 @@ func (mc *MindController) decodeStream(byteStream chan byte, packetStream chan *
 		}
 	}
 }
+
+func (mc *MindController) decodeStreamSM(byteStream chan byte, packetStream chan *Packet) {
+	var (
+		readstate uint8
+		b	uint8
+		thisPacket [33]byte
+		lastPacket [33]byte
+		seqDiff    uint8
+		sampPacket *Packet
+	)
+	sampPacket = NewPacket()
+	for {
+		switch readstate {
+		case 0:
+			b = <-byteStream
+			if (b == sampPacket.footer) {
+				readstate++
+				b = <-byteStream
+			}
+		case 1:
+			if (b == sampPacket.header) {
+				thisPacket[0] = b
+				readstate++
+			} else {
+				readstate = 0
+			}
+		case 2:
+			b = <-byteStream
+			if (lastPacket != [33]byte{}) {
+				seqDiff = difference(b, lastPacket[0])
+			} else {
+				seqDiff = 1
+			}
+			for (seqDiff > 1) {
+				log.Println(seqDiff, "packets dropped")
+				lastPacket[0]++
+				packetStream <-mc.encodePacket(&lastPacket)
+				seqDiff--
+			}
+			readstate++
+		case 3:
+			for j := 2; j < 32; j++ {
+				thisPacket[j] = <-byteStream
+			}
+			readstate++
+			b = <-byteStream
+		case 4:
+			if (b == sampPacket.footer) {
+				thisPacket[32] = b
+				lastPacket = thisPacket
+				packetStream <- mc.encodePacket(&thisPacket)
+				readstate = 1
+			} else {
+				log.Println("Footer out of sync")
+				readstate = 0
+			}
+			b = <-byteStream
+		default:
+			readstate = 0
+		}
+	}
+}

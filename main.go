@@ -34,10 +34,6 @@ func sendPackets() {
 		if i%250 == 0 {
 			second = time.Now().UnixNano()
 			log.Println(second-last_second, "nanoseconds have elapsed between 1250 samples.")
-			log.Println("Gain changer:", mc.gain)
-			//fmt.Println("Chans 1-4:", p.chan1, p.chan2, p.chan3, p.chan4)
-			//fmt.Println("Chans 5-8:", p.chan5, p.chan6, p.chan7, p.chan8)
-			//fmt.Println("Acc Data:", p.accX, p.accY, p.accZ)
 			last_second = second
 		}
 	}
