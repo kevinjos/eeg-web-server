@@ -11,7 +11,13 @@ var channelOn = map[string]string{"1": "!", "2": "@", "3": "#", "4": "$", "5": "
 var gainMap = map[string]float64{"0": 1.0, "1": 2.0, "2": 4.0, "3": 6.0, "4": 8.0, "5": 12.0, "6": 24.0}
 
 func jsHandler(w http.ResponseWriter, r *http.Request) {
-  http.ServeFile(w, r, "js/webgl-debug.js")
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	p := strings.Split(r.URL.Path, "/")
+	f := p[len(p)-1]
+  http.ServeFile(w, r, "js/" + f)
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
