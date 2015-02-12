@@ -7,9 +7,12 @@ import (
 	"strings"
 )
 
-var rootTempl = template.Must(template.ParseFiles("static/index.html"))
 var channelOn = map[string]string{"1": "!", "2": "@", "3": "#", "4": "$", "5": "%", "6": "^", "7": "&", "8": "*"}
 var gainMap = map[string]float64{"0": 1.0, "1": 2.0, "2": 4.0, "3": 6.0, "4": 8.0, "5": 12.0, "6": 24.0}
+
+func jsHandler(w http.ResponseWriter, r *http.Request) {
+  http.ServeFile(w, r, "js/webgl-debug.js")
+}
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
@@ -20,6 +23,7 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
+  rootTempl := template.Must(template.ParseFiles("static/index.html"))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	rootTempl.Execute(w, r.Host)
 }

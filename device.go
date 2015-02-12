@@ -84,7 +84,7 @@ func (d *Device) write(s string) {
 		log.Println("Error writing [", n, "] bytes to serial device: [", err, "]")
 	} else {
 		log.Println("Wrote [", n, "] byte", wb, "to the serial device")
-		time.Sleep(1000 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 	return
 }
@@ -113,7 +113,9 @@ func (d *Device) reset() {
 	init_array = [3]byte{'\x24', '\x24', '\x24'}
 
 	d.write("s")
+  time.Sleep(1 * time.Second)
 	d.write("v")
+  time.Sleep(1 * time.Second)
 
 	for {
 		select {

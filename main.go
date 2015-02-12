@@ -48,6 +48,7 @@ func main() {
 	http.HandleFunc("/start", startHandler)
 	http.HandleFunc("/stop", stopHandler)
 	http.HandleFunc("/close", closeHandler)
+	http.HandleFunc("/js/webgl-debug.js", jsHandler)
 	go h.run()
 	for {
 		http.ListenAndServe(*addr, nil)

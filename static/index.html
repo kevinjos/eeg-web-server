@@ -10,7 +10,8 @@
 				}
 				conn.onmessage = function(evt) {
 					data = JSON.parse(evt.data)
-					console.log("received data:", data.Chans)
+					debugger;
+					console.log("received data:", data.Chans.Chan1)
 				}
 				conn.onopen = function(evt) {
 					console.log("opening")
@@ -57,6 +58,130 @@
 	</head>
 
 	<body>
+		
+		<canvas id="canvas" width="400" height="300">
+		
+		</canvas>
+		
+		<script id="vertShader" type="x-shader/x-vertex">
+			uniform mat4 modelViewMat;
+			uniform mat4 projMat;
+			
+			attribute vec3 pos;
+			
+			varying vec4 worldPos;
+			void main() {
+				worldPos = modelViewMat * vec4(pos, 1);
+				gl_Position = projMat*worldPos;
+			}
+			
+		</script>
+		
+		<script id="fragShader" type="x-shader/x-fragment">
+			
+			varying mediump vec4 worldPos;
+			
+			void main() {
+				gl_FragColor = vec4(1.0 - worldPos.y, worldPos.y, 0.0, 1.0);
+			}
+		</script>
+		
+		<script src="http://localhost:8888/js/webgl-debug.js"></script>
+		
+		<script type="text/javascript">
+			var canvas = document.getElementById('canvas');
+			var gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+			gl = WebGLDebugUtils.makeDebugContext(gl);
+			var vbo;
+			var vertArray;
+			
+			var transpose = function(a) {
+				var t = [];
+				for (var i = 0; i < 16; ++i) {
+					t[i] = a[(4*i + Math.floor(i/4)) % 16];
+				}
+				return t;
+			};
+			
+			var toFloat32Array = function(a) {
+				var f32a = new Float32Array(a.length);
+				a.forEach(function(f, i) {
+					f32a[i] = f;
+				});
+				return f32a;
+			}
+
+			var scope = {
+				getContext: function()  {
+					return gl; 
+				},
+				
+				init: function(channels, historyLength) {
+					var numVerts = channels*historyLength;
+					vertArray = new Float32Array(numVerts * 3);
+					vbo = gl.createBuffer();
+					gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+					gl.bufferData(gl.ARRAY_BUFFER, numVerts * vertArray.BYTES_PER_ELEMENT * 3, gl.DYNAMIC_DRAW);
+					gl.bufferData(gl.ARRAY_BUFFER, vertArray.buffer, gl.DYNAMIC_DRAW);
+					
+					var vertSrc = document.getElementById('vertShader').text;
+					var fragSrc = document.getElementById('fragShader').text;
+					
+					var program = scope.buildShaderProgram(vertSrc, fragSrc);
+					var posIndex = gl.getAttribLocation(program, "pos");
+					gl.vertexAttribPointer(posIndex, 3, gl.FLOAT, gl.FALSE, vertArray.BYTES_PER_ELEMENT * 3, 0);
+					var modelViewMatLoc = gl.getUniformLocation(program, 'modelViewMat');
+					var projMatLoc = gl.getUniformLocation(program, 'projMat');
+					gl.useProgram(program);
+					var idenMat = new Float32Array(16);
+					idenMat[0] = idenMat[5] = idenMat[10] = idenMat[15] = 1;
+					var n = 0.01, f = 1000;
+					var b = -1, t = 1;
+					var l = -1, r = 1;
+					var projMat = toFloat32Array(transpose([
+						2*n/(r-l), 0,         (r+l)/(r-l),  0,
+						0,         2*n/(t-b), (t+b)/(t-b),  0,
+						0,         0,         (-n-f)/(f-n), -2*f*n/(f-n),
+						0,         0,         -1,           0,
+					]));
+					
+					
+					gl.uniformMatrix4fv(modelViewMatLoc, gl.FALSE, idenMat);
+					gl.uniformMatrix4fv(projMatLoc, gl.FALSE, projMat);
+					
+					gl.useProgram(program);
+				},
+				
+				buildShaderProgram: function(vertSrc, fragSrc) {
+					var vertShader = gl.createShader(gl.VERTEX_SHADER);
+					var fragShader = gl.createShader(gl.FRAGMENT_SHADER);
+					gl.shaderSource(vertShader, vertSrc);
+					gl.shaderSource(fragShader, fragSrc);
+					gl.compileShader(vertShader);
+					console.log("vertex shader compilation log:\n",
+					gl.getShaderInfoLog(vertShader));
+					gl.compileShader(fragShader);
+					console.log("fragment shader compilation log:\n",
+					gl.getShaderInfoLog(fragShader));
+					
+					var program = gl.createProgram();
+					gl.attachShader(program, vertShader);
+					gl.attachShader(program, fragShader);
+					
+					gl.linkProgram(program);
+					
+					console.log("linker log:\n",
+					gl.getProgramInfoLog(program));
+					return program;
+				},
+				
+				getError: function() {
+					return gl.getError();
+				},
+			};
+			window.bciVis = scope;
+
+		</script>
 
 		<div id="streamcommands" align="center">
 			<input type="button" value="open" href="http://{{$}}/open">
