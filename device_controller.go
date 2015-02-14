@@ -9,6 +9,7 @@ type MindController struct {
 	WriteStream  chan string
 	PacketStream chan *Packet
 	ResetButton  chan bool
+	toDevReset   chan bool
 	QuitButton   chan bool
 	serialDevice *Device
 	byteStream   chan byte
@@ -29,16 +30,18 @@ func NewMindController() *MindController {
 	packetStream := make(chan *Packet)
 	quitChan := make(chan bool)
 	resetChan := make(chan bool)
+	tdreset := make(chan bool)
 	gain := [8]float64{24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0}
 	//Set up the serial device
 	location = "/dev/ttyUSB0"
 	baud = 115200
 	readTimeout = 5 * time.Second
-	serialDevice := NewDevice(location, baud, readTimeout, byteStream, writeStream, quitChan, resetChan)
+	serialDevice := NewDevice(location, baud, readTimeout, byteStream, writeStream, quitChan, tdreset)
 	return &MindController{
 		WriteStream:  writeStream,
 		PacketStream: packetStream,
 		ResetButton:  resetChan,
+		toDevReset:   tdreset,
 		QuitButton:   quitChan,
 		serialDevice: serialDevice,
 		byteStream:   byteStream,
@@ -48,6 +51,7 @@ func NewMindController() *MindController {
 
 func (mc *MindController) Open() {
 	mc.serialDevice.open()
+	mc.serialDevice.reset()
 	go mc.decodeStream(mc.byteStream, mc.PacketStream)
 }
 
@@ -70,116 +74,69 @@ func (mc *MindController) encodePacket(p *[33]byte) *Packet {
 
 //decodeStream implements the openbci packet protocol to
 //assemble packets and sends packet arrays onto the packetStream
-//TODO: Upon stopping and starting the binary stream it is suspected
-//			that transmission of data may stop mid packet. In which case
-//			we might see some header byte that belongs to a raw data value.
-//			This will look to the decoder as though we are out of sync.
 func (mc *MindController) decodeStream(byteStream chan byte, packetStream chan *Packet) {
 	var (
+		readstate  uint8
+		b          uint8
 		thisPacket [33]byte
 		lastPacket [33]byte
 		seqDiff    uint8
-		sampPacket *Packet
 	)
-	sampPacket = NewPacket()
-
 	for {
-		b := <-byteStream
-		if b == sampPacket.header {
-			thisPacket[0] = b
-			thisPacket[1] = <-byteStream
-
-			switch {
-			case lastPacket != [33]byte{}:
-				seqDiff = difference(thisPacket[1], lastPacket[1])
-			case lastPacket == [33]byte{}:
-				seqDiff = 1
+		select {
+		case reset := <-mc.ResetButton:
+			lastPacket = [33]byte{}
+			if reset {
+				mc.toDevReset <- reset
+			} else {
+				mc.WriteStream <- "s"
 			}
-
-			for i := 2; i < 32; i++ {
-				thisPacket[i] = <-byteStream
-			}
-
-			footer := <-byteStream
-			if footer != sampPacket.footer {
-				log.Println("Footer out of sync")
-				continue
-			}
-			thisPacket[32] = footer
-
-			if seqDiff != 1 {
-				log.Println(seqDiff, "packets dropped")
+			readstate = 0
+		case b = <-byteStream:
+			switch readstate {
+			case 0:
+				if b == '\xc0' {
+					readstate++
+				}
+			case 1:
+				if b == '\xa0' {
+					thisPacket[0] = b
+					readstate++
+				} else {
+					readstate = 0
+				}
+			case 2:
+				thisPacket[1] = b
+				if lastPacket != [33]byte{} {
+					seqDiff = difference(b, lastPacket[1])
+				} else {
+					seqDiff = 1
+				}
+				if seqDiff > 1 {
+					log.Println("Dropped", seqDiff, "packets")
+				}
 				for seqDiff > 1 {
 					lastPacket[1]++
 					packetStream <- mc.encodePacket(&lastPacket)
 					seqDiff--
 				}
+				fallthrough
+			case 3:
+				for j := 2; j < 32; j++ {
+					thisPacket[j] = <-byteStream
+				}
+				readstate = 4
+			case 4:
+				if b == '\xc0' {
+					thisPacket[32] = b
+					lastPacket = thisPacket
+					packetStream <- mc.encodePacket(&thisPacket)
+					readstate = 1
+				} else {
+					log.Println("Footer out of sync")
+					readstate = 0
+				}
 			}
-
-			packetStream <- mc.encodePacket(&thisPacket)
-			lastPacket = thisPacket
-		}
-	}
-}
-
-func (mc *MindController) decodeStreamSM(byteStream chan byte, packetStream chan *Packet) {
-	var (
-		readstate uint8
-		b	uint8
-		thisPacket [33]byte
-		lastPacket [33]byte
-		seqDiff    uint8
-		sampPacket *Packet
-	)
-	sampPacket = NewPacket()
-	for {
-		switch readstate {
-		case 0:
-			b = <-byteStream
-			if (b == sampPacket.footer) {
-				readstate++
-				b = <-byteStream
-			}
-		case 1:
-			if (b == sampPacket.header) {
-				thisPacket[0] = b
-				readstate++
-			} else {
-				readstate = 0
-			}
-		case 2:
-			b = <-byteStream
-			if (lastPacket != [33]byte{}) {
-				seqDiff = difference(b, lastPacket[0])
-			} else {
-				seqDiff = 1
-			}
-			for (seqDiff > 1) {
-				log.Println(seqDiff, "packets dropped")
-				lastPacket[0]++
-				packetStream <-mc.encodePacket(&lastPacket)
-				seqDiff--
-			}
-			readstate++
-		case 3:
-			for j := 2; j < 32; j++ {
-				thisPacket[j] = <-byteStream
-			}
-			readstate++
-			b = <-byteStream
-		case 4:
-			if (b == sampPacket.footer) {
-				thisPacket[32] = b
-				lastPacket = thisPacket
-				packetStream <- mc.encodePacket(&thisPacket)
-				readstate = 1
-			} else {
-				log.Println("Footer out of sync")
-				readstate = 0
-			}
-			b = <-byteStream
-		default:
-			readstate = 0
 		}
 	}
 }

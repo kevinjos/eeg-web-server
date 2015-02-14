@@ -56,10 +56,9 @@ func (d *Device) readWriteClose() {
 			}()
 			return
 		default:
-			switch {
-			case streamingData == true:
+			if streamingData {
 				d.read()
-			case streamingData == false:
+			} else {
 				time.Sleep(100 * time.Millisecond)
 			}
 		}
@@ -78,13 +77,37 @@ func (d *Device) read() {
 	}
 }
 
+func (d *Device) testRead(bytestream chan uint8) {
+	var readstate uint8
+	var seqNum uint8
+
+	for {
+		switch readstate {
+		case 0:
+			d.byteStream <- '\xa0'
+			readstate++
+		case 1:
+			d.byteStream <- seqNum
+			seqNum++
+			readstate++
+		case 2:
+			for i := 0; i < 30; i++ {
+				d.byteStream <- '\xa1'
+			}
+			readstate++
+		case 3:
+			d.byteStream <- '\xc0'
+			readstate = 0
+		}
+	}
+}
+
 func (d *Device) write(s string) {
 	wb := []byte(s)
 	if n, err := d.conn.Write(wb); err != nil {
 		log.Println("Error writing [", n, "] bytes to serial device: [", err, "]")
 	} else {
 		log.Println("Wrote [", n, "] byte", wb, "to the serial device")
-		time.Sleep(10 * time.Millisecond)
 	}
 	return
 }
@@ -97,7 +120,6 @@ func (d *Device) open() {
 		os.Exit(1)
 	}
 	d.conn = conn
-	d.reset()
 }
 
 //Reset sends the stop and reset message to the serial device,
@@ -113,9 +135,9 @@ func (d *Device) reset() {
 	init_array = [3]byte{'\x24', '\x24', '\x24'}
 
 	d.write("s")
-  time.Sleep(1 * time.Second)
+	time.Sleep(1 * time.Second)
 	d.write("v")
-  time.Sleep(1 * time.Second)
+	time.Sleep(1 * time.Second)
 
 	for {
 		select {

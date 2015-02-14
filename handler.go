@@ -17,7 +17,7 @@ func jsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	p := strings.Split(r.URL.Path, "/")
 	f := p[len(p)-1]
-  http.ServeFile(w, r, "js/" + f)
+	http.ServeFile(w, r, "js/"+f)
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +29,7 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-  rootTempl := template.Must(template.ParseFiles("static/index.html"))
+	rootTempl := template.Must(template.ParseFiles("static/index.html"))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	rootTempl.Execute(w, r.Host)
 }
@@ -109,7 +109,7 @@ func stopHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	mc.WriteStream <- "s"
+	mc.ResetButton <- false
 }
 
 func closeHandler(w http.ResponseWriter, r *http.Request) {
@@ -118,6 +118,16 @@ func closeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mc.QuitButton <- true
+}
+
+func testHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	go mc.decodeStream(mc.byteStream, mc.PacketStream)
+	go mc.serialDevice.testRead(mc.byteStream)
+	go sendPackets()
 }
 
 func wsPacketHandler(w http.ResponseWriter, r *http.Request) {
