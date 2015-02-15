@@ -128,7 +128,7 @@ var testsencode = []testencodepair{
 func TestEncodePacket(t *testing.T) {
 	mc := NewMindController()
 	for _, pair := range testsencode {
-		res := mc.encodePacket(pair.p)
+		res := mc.encodePacket(pair.p, 100)
 		if *res != *pair.result {
 			t.Error(
 				"For x", pair.p,

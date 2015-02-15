@@ -10,7 +10,6 @@
 				}
 				conn.onmessage = function(evt) {
 					data = JSON.parse(evt.data)
-					debugger;
 					console.log("received data:", data.Chans.Chan1)
 				}
 				conn.onopen = function(evt) {
@@ -189,6 +188,7 @@
 			<input type="button" value="start" href="http://{{$}}/start">
 			<input type="button" value="stop" href="http://{{$}}/stop">
 			<input type="button" value="close" href="http://{{$}}/close">
+			<input type="button" value="gentest" href="http://{{$}}/test">
 		</div>
 
 		<div id="chantoggle" align="left"><br>

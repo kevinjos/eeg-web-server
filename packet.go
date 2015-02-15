@@ -5,21 +5,23 @@ import (
 )
 
 type PacketBatcher struct {
-	packets [packetBatchSize]*Packet
-	Chans   map[string][packetBatchSize]float64
+	packets       [packetBatchSize]*Packet
+	Chans         map[string][packetBatchSize]float64
+	SignalQuality float64
 }
 
 func (pb *PacketBatcher) batch() {
 	var (
-		chan1 [packetBatchSize]float64
-		chan2 [packetBatchSize]float64
-		chan3 [packetBatchSize]float64
-		chan4 [packetBatchSize]float64
-		chan5 [packetBatchSize]float64
-		chan6 [packetBatchSize]float64
-		chan7 [packetBatchSize]float64
-		chan8 [packetBatchSize]float64
-		chans = [8]*[packetBatchSize]float64{&chan1, &chan2, &chan3, &chan4, &chan5, &chan6, &chan7, &chan8}
+		chan1         [packetBatchSize]float64
+		chan2         [packetBatchSize]float64
+		chan3         [packetBatchSize]float64
+		chan4         [packetBatchSize]float64
+		chan5         [packetBatchSize]float64
+		chan6         [packetBatchSize]float64
+		chan7         [packetBatchSize]float64
+		chan8         [packetBatchSize]float64
+		signalQuality [packetBatchSize]uint8
+		chans         = [8]*[packetBatchSize]float64{&chan1, &chan2, &chan3, &chan4, &chan5, &chan6, &chan7, &chan8}
 	)
 	for i, p := range pb.packets {
 		chan1[i] = p.Chan1
@@ -27,16 +29,21 @@ func (pb *PacketBatcher) batch() {
 		chan3[i] = p.Chan3
 		chan4[i] = p.Chan4
 		chan5[i] = p.Chan5
-		chan6[i] = p.Chan6
+		chan6[i] = p.Chan7
 		chan7[i] = p.Chan7
 		chan8[i] = p.Chan8
+		signalQuality[i] = p.SignalQuality
 	}
 	var emptyChan [packetBatchSize]float64
-	for i, v := range chans {
-		if *v != emptyChan {
-			pb.Chans["Chan"+strconv.Itoa(i+1)] = *v
+	for i, ch := range chans {
+		if *ch != emptyChan {
+			pb.Chans["Chan"+strconv.Itoa(i+1)] = *ch
 		}
 	}
+	for _, sq := range signalQuality {
+		pb.SignalQuality += float64(sq)
+	}
+	pb.SignalQuality /= packetBatchSize
 }
 
 func NewPacketBatcher() *PacketBatcher {
@@ -52,12 +59,14 @@ type Packet struct {
 	header, footer, seqNum                                 byte
 	Chan1, Chan2, Chan3, Chan4, Chan5, Chan6, Chan7, Chan8 float64
 	AccX, AccY, AccZ                                       int16
+	SignalQuality                                          uint8
 }
 
 func NewPacket() *Packet {
 	return &Packet{
-		header: '\xa0',
-		footer: '\xc0',
+		header:        '\xa0',
+		footer:        '\xc0',
+		SignalQuality: 100,
 	}
 }
 

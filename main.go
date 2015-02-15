@@ -11,15 +11,19 @@ var mc *MindController = NewMindController()
 var addr = flag.String("addr", ":8888", "http service address")
 
 const (
-	readBufferSize  = 1024
-	packetBatchSize = 100
+	samplesPerSecond = 250
+	packetBatchSize  = 100
+	readTimeout      = 1000 * packetBatchSize / samplesPerSecond * time.Millisecond
+	readBufferSize   = 33 * packetBatchSize
+	baud             = 115200
+	location         = "/dev/ttyUSB0"
 )
 
 func sendPackets() {
 	last_second := time.Now().UnixNano()
 	second := time.Now().UnixNano()
+	defer func() {log.Println("EXITING")}()
 
-	go mc.serialDevice.readWriteClose()
 
 	pb := NewPacketBatcher()
 	for i := 1; ; i++ {
@@ -33,7 +37,7 @@ func sendPackets() {
 		}
 		if i%250 == 0 {
 			second = time.Now().UnixNano()
-			log.Println(second-last_second, "nanoseconds have elapsed between 1250 samples.")
+			log.Println(second-last_second, "nanoseconds have elapsed between 250 samples.")
 			last_second = second
 		}
 	}
@@ -48,9 +52,12 @@ func main() {
 	http.HandleFunc("/start", startHandler)
 	http.HandleFunc("/stop", stopHandler)
 	http.HandleFunc("/close", closeHandler)
-	http.HandleFunc("/js/", jsHandler)
 	http.HandleFunc("/test", testHandler)
-	go h.run()
+	http.HandleFunc("/js/", jsHandler)
+	go h.Run()
+	go sendPackets()
+	go mc.DecodeStream()
+	go mc.SerialDevice.ReadWriteClose()
 	for {
 		http.ListenAndServe(*addr, nil)
 	}

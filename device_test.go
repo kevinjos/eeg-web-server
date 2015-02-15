@@ -2,22 +2,34 @@ package main
 
 import (
 	"testing"
-	"time"
 )
 
-func TestNewDevice(t *testing.T) {
-	loc := "/foo"
-	baud := 115200
-	readtimeout := time.Second * 1
+func TestOpenDevice(t *testing.T) {
+	rtStream := make(chan bool)
 	byteStream := make(chan byte)
 	writeStream := make(chan string)
 	quit := make(chan bool)
 	reset := make(chan bool)
-	d := NewDevice(loc, baud, readtimeout, byteStream, writeStream, quit, reset)
-	if d.Baud != baud {
+	d := &Device{
+		byteStream:  byteStream,
+		rtStream:    rtStream,
+		writeStream: writeStream,
+		quitButton:  quit,
+		resetButton: reset,
+	}
+	c := make(chan bool)
+	rt := false
+	go func(c chan bool) {
+		rt := <-rtStream
+		c <- rt
+	}(c)
+	d.open()
+	buf := make([]byte, 1)
+	d.read(buf)
+	if rt = <-c; rt != true {
 		t.Error(
-			"expecting", baud,
-			"got", d.Baud,
+			"expecting", true,
+			"got", rt,
 		)
 	}
 }

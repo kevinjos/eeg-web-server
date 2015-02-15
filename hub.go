@@ -24,7 +24,7 @@ func NewHub() *hub {
 	}
 }
 
-func (h *hub) run() {
+func (h *hub) Run() {
 	for {
 		select {
 		case c := <-h.register:

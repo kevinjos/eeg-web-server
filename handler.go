@@ -85,7 +85,6 @@ func openHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mc.Open()
-	go sendPackets()
 }
 
 func resetHandler(w http.ResponseWriter, r *http.Request) {
@@ -125,9 +124,7 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	go mc.decodeStream(mc.byteStream, mc.PacketStream)
-	go mc.serialDevice.testRead(mc.byteStream)
-	go sendPackets()
+	go mc.GenTestPackets()
 }
 
 func wsPacketHandler(w http.ResponseWriter, r *http.Request) {

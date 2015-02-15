@@ -9,44 +9,28 @@ import (
 )
 
 type Device struct {
-	Location    string
-	Baud        int
-	ReadTimeout time.Duration
 	writeStream chan string
 	byteStream  chan byte
+	rtStream    chan bool
 	resetButton chan bool
 	quitButton  chan bool
 	conn        io.ReadWriteCloser
 }
 
-func NewDevice(Location string, Baud int, ReadTimeout time.Duration,
-	byteStream chan byte, writeStream chan string, quitButton chan bool, resetButton chan bool) *Device {
-	d := &Device{
-		Location:    Location,
-		Baud:        Baud,
-		ReadTimeout: ReadTimeout,
-		byteStream:  byteStream,
-		writeStream: writeStream,
-		quitButton:  quitButton,
-		resetButton: resetButton,
-	}
-	return d
-}
-
-func (d *Device) readWriteClose() {
+func (d *Device) ReadWriteClose() {
 	streamingData := false
 	for {
 		select {
 		case s := <-d.writeStream:
-			d.write(s)
-			switch {
-			case s == "s" || s == "v":
+			if s == "s" {
 				streamingData = false
-			case s == "b":
+			} else if s == "b" {
 				streamingData = true
 			}
+			d.write(s)
 		case <-d.resetButton:
-			d.reset()
+			streamingData = false
+			go d.reset()
 		case <-d.quitButton:
 			defer func() {
 				d.write("s")
@@ -57,47 +41,26 @@ func (d *Device) readWriteClose() {
 			return
 		default:
 			if streamingData {
-				d.read()
+				buf := make([]byte, readBufferSize-1)
+				d.read(buf)
 			} else {
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(4 * time.Millisecond)
 			}
 		}
 	}
 }
 
-func (d *Device) read() {
-	buf := make([]byte, readBufferSize-1)
+func (d *Device) read(buf []byte) {
 	n, err := d.conn.Read(buf)
-	if err != nil {
-		log.Println("Error reading [", n, "] bytes from serial device: [", err, "]")
-	} else if n > 0 {
+	if err == io.EOF {
+		log.Println("Read timeout")
+		d.rtStream <- true
+	} else if err != nil {
+		log.Fatal("Error reading [", n, "] bytes from serial device: [", err, "]")
+	}
+	if n > 0 {
 		for i := 0; i < n; i++ {
 			d.byteStream <- buf[i]
-		}
-	}
-}
-
-func (d *Device) testRead(bytestream chan uint8) {
-	var readstate uint8
-	var seqNum uint8
-
-	for {
-		switch readstate {
-		case 0:
-			d.byteStream <- '\xa0'
-			readstate++
-		case 1:
-			d.byteStream <- seqNum
-			seqNum++
-			readstate++
-		case 2:
-			for i := 0; i < 30; i++ {
-				d.byteStream <- '\xa1'
-			}
-			readstate++
-		case 3:
-			d.byteStream <- '\xc0'
-			readstate = 0
 		}
 	}
 }
@@ -109,15 +72,13 @@ func (d *Device) write(s string) {
 	} else {
 		log.Println("Wrote [", n, "] byte", wb, "to the serial device")
 	}
-	return
 }
 
 func (d *Device) open() {
-	config := &serial.Config{Name: d.Location, Baud: d.Baud, ReadTimeout: d.ReadTimeout}
+	config := &serial.Config{Name: location, Baud: baud, ReadTimeout: readTimeout}
 	conn, err := serial.OpenPort(config)
 	if err != nil {
-		log.Println("Error conneting to serial device: [", err, "]")
-		os.Exit(1)
+		log.Fatal("Error conneting to serial device: [", err, "]")
 	}
 	d.conn = conn
 }
@@ -132,12 +93,12 @@ func (d *Device) reset() {
 		index      int
 	)
 
-	init_array = [3]byte{'\x24', '\x24', '\x24'}
+	d.writeStream <- "s"
+	time.Sleep(400 * time.Millisecond)
+	d.writeStream <- "v"
+	time.Sleep(1000 * time.Millisecond)
 
-	d.write("s")
-	time.Sleep(1 * time.Second)
-	d.write("v")
-	time.Sleep(1 * time.Second)
+	init_array = [3]byte{'\x24', '\x24', '\x24'}
 
 	for {
 		select {
@@ -149,7 +110,8 @@ func (d *Device) reset() {
 				d.writeStream <- "b"
 				return
 			} else {
-				d.read()
+				buf := make([]byte, 1)
+				d.read(buf)
 			}
 		}
 	}
