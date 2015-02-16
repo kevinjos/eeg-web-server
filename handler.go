@@ -124,7 +124,7 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	go mc.GenTestPackets()
+	go GenTestPackets(mc.QuitButton)
 }
 
 func wsPacketHandler(w http.ResponseWriter, r *http.Request) {

@@ -5,7 +5,7 @@ import (
 )
 
 func TestMCOpen(t *testing.T) {
-	mc := NewMindController()
+	mc := NewMindControl()
 	c := make(chan bool)
 	go func(c chan bool) {
 		reset := <- mc.ResetButton

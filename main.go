@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var mc *MindController = NewMindController()
+var mc *MindControl = NewMindControl()
 var addr = flag.String("addr", ":8888", "http service address")
 
 const (
@@ -22,8 +22,6 @@ const (
 func sendPackets() {
 	last_second := time.Now().UnixNano()
 	second := time.Now().UnixNano()
-	defer func() {log.Println("EXITING")}()
-
 
 	pb := NewPacketBatcher()
 	for i := 1; ; i++ {
@@ -54,10 +52,11 @@ func main() {
 	http.HandleFunc("/close", closeHandler)
 	http.HandleFunc("/test", testHandler)
 	http.HandleFunc("/js/", jsHandler)
+	mindController := MindController(mc)
 	go h.Run()
 	go sendPackets()
-	go mc.DecodeStream()
-	go mc.SerialDevice.ReadWriteClose()
+	go mindController.DecodeStream()
+	go mindController.ReadWriteClose()
 	for {
 		http.ListenAndServe(*addr, nil)
 	}

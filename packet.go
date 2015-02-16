@@ -70,6 +70,24 @@ func NewPacket() *Packet {
 	}
 }
 
+func encodePacket(p *[33]byte, sq byte, gain *[8]float64) *Packet {
+	packet := NewPacket()
+	packet.seqNum = p[1]
+	packet.Chan1 = scaleToVolts(convert24bitTo32bit(p[2:5]), gain[0])
+	packet.Chan2 = scaleToVolts(convert24bitTo32bit(p[5:8]), gain[1])
+	packet.Chan3 = scaleToVolts(convert24bitTo32bit(p[8:11]), gain[2])
+	packet.Chan4 = scaleToVolts(convert24bitTo32bit(p[11:14]), gain[3])
+	packet.Chan5 = scaleToVolts(convert24bitTo32bit(p[14:17]), gain[4])
+	packet.Chan6 = scaleToVolts(convert24bitTo32bit(p[17:20]), gain[5])
+	packet.Chan7 = scaleToVolts(convert24bitTo32bit(p[20:23]), gain[6])
+	packet.Chan8 = scaleToVolts(convert24bitTo32bit(p[23:26]), gain[7])
+	packet.AccX = convert16bitTo32bit(p[26:28])
+	packet.AccY = convert16bitTo32bit(p[28:30])
+	packet.AccZ = convert16bitTo32bit(p[30:32])
+	packet.SignalQuality = sq
+	return packet
+}
+
 //conver24bitTo32bit takes a byte slice of len 3
 //and converts the 24bit 2's complement integer
 //to the type int32 representation
