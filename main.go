@@ -2,12 +2,10 @@ package main
 
 import (
 	"flag"
-	"log"
 	"net/http"
 	"time"
 )
 
-var mc *MindControl = NewMindControl()
 var addr = flag.String("addr", ":8888", "http service address")
 
 const (
@@ -19,44 +17,23 @@ const (
 	location         = "/dev/ttyUSB0"
 )
 
-func sendPackets() {
-	last_second := time.Now().UnixNano()
-	second := time.Now().UnixNano()
-
-	pb := NewPacketBatcher()
-	for i := 1; ; i++ {
-		p := <-mc.PacketStream
-		pb.packets[i%packetBatchSize] = p
-
-		if i%packetBatchSize == 0 {
-			pb.batch()
-			h.broadcast <- pb
-			pb = NewPacketBatcher()
-		}
-		if i%250 == 0 {
-			second = time.Now().UnixNano()
-			log.Println(second-last_second, "nanoseconds have elapsed between 250 samples.")
-			last_second = second
-		}
-	}
-}
-
 func main() {
-	http.HandleFunc("/", rootHandler)
-	http.HandleFunc("/x/", commandHandler)
+	var mc *MindControl = NewMindControl()
+	handle := NewHandle(mc)
 	http.HandleFunc("/ws", wsPacketHandler)
-	http.HandleFunc("/open", openHandler)
-	http.HandleFunc("/reset", resetHandler)
-	http.HandleFunc("/start", startHandler)
-	http.HandleFunc("/stop", stopHandler)
-	http.HandleFunc("/close", closeHandler)
-	http.HandleFunc("/test", testHandler)
-	http.HandleFunc("/js/", jsHandler)
-	mindController := MindController(mc)
+	http.HandleFunc("/", handle.rootHandler)
+	http.HandleFunc("/x/", handle.commandHandler)
+	http.HandleFunc("/open", handle.openHandler)
+	http.HandleFunc("/reset", handle.resetHandler)
+	http.HandleFunc("/start", handle.startHandler)
+	http.HandleFunc("/stop", handle.stopHandler)
+	http.HandleFunc("/close", handle.closeHandler)
+	http.HandleFunc("/test", handle.testHandler)
+	http.HandleFunc("/js/", handle.jsHandler)
 	go h.Run()
-	go sendPackets()
-	go mindController.DecodeStream()
-	go mindController.ReadWriteClose()
+	go mc.sendPackets()
+	go mc.DecodeStream()
+	go mc.ReadWriteClose()
 	for {
 		http.ListenAndServe(*addr, nil)
 	}

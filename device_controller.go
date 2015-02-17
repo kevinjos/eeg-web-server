@@ -6,62 +6,38 @@ import (
 	"math/rand"
 )
 
-type MindController interface {
-	Open()
-	DecodeStream()
-	ReadWriteClose()
-}
-
 type MindControl struct {
-	WriteStream        chan string
-	PacketStream       chan *Packet
-	ReadTimedoutStream chan bool
-	ResetButton        chan bool
-	ToDevReset         chan bool
-	QuitButton         chan bool
-	SerialDevice       *Device
-	ByteStream         chan byte
+	ReadChan	*chan byte
+	PacketChan       chan *Packet
+	ResetChan        chan bool
+	SerialDevice       *OpenBCI
 	gain               [8]float64
 }
 
 func NewMindControl() *MindControl {
-	//Make some channels
-	byteStream := make(chan byte, readBufferSize)
-	writeStream := make(chan string, 64)
-	packetStream := make(chan *Packet)
-	rtStream := make(chan bool)
-	quitChan := make(chan bool)
-	resetChan := make(chan bool)
-	tdreset := make(chan bool)
-	gain := [8]float64{24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0}
 	//Set up the serial device
-	serialDevice := &Device{
-		byteStream:  byteStream,
-		rtStream:    rtStream,
-		writeStream: writeStream,
-		quitButton:  quitChan,
-		resetButton: tdreset,
-	}
+	serialDevice := NewOpenBCI()
 	return &MindControl{
-		WriteStream:        writeStream,
-		PacketStream:       packetStream,
-		ReadTimedoutStream: rtStream,
-		ResetButton:        resetChan,
-		ToDevReset:         tdreset,
-		QuitButton:         quitChan,
+		ReadChan: &serialDevice.readChan,
+		PacketChan: make(chan *Packet),
+		ResetChan:	make(chan bool),
 		SerialDevice:       serialDevice,
-		ByteStream:         byteStream,
-		gain:               gain,
+		gain: [8]float64{24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0},
 	}
 }
 
 func (mc *MindControl) Open() {
 	mc.SerialDevice.open()
-	mc.ResetButton <- true
+	go mc.Read()
+	mc.ResetChan <- true
 }
 
 func (mc *MindControl) ReadWriteClose() {
 	mc.SerialDevice.ReadWriteClose()
+}
+
+func (mc *MindControl) Read() {
+	mc.SerialDevice.read()
 }
 
 //decodeStream implements the openbci packet protocol to
@@ -76,20 +52,25 @@ func (mc *MindControl) DecodeStream() {
 		syncPktCtr    uint8
 		syncPktThresh uint8
 	)
+	resetMonitorChan := make(chan bool)
 	syncPktThresh = 2
 	for {
 		select {
-		case reset := <-mc.ResetButton:
+		case <-resetMonitorChan:
+			mc.ReadChan = &mc.SerialDevice.readChan
+		case reset := <-mc.ResetChan:
 			readstate, syncPktCtr = 0, 0
 			if reset {
-				mc.ToDevReset <- reset
+				var bogusChan chan byte
+				mc.ReadChan = &bogusChan
+				mc.SerialDevice.resetChan <- resetMonitorChan
 			} else {
-				mc.WriteStream <- "s"
+				mc.SerialDevice.writeChan <- "s"
 			}
-		case <-mc.ReadTimedoutStream:
+		case <-mc.SerialDevice.timeoutChan:
 			lastPacket := lastPacket
-			mc.PacketStream <- encodePacket(&lastPacket, 0, &mc.gain)
-		case b = <-mc.ByteStream:
+			mc.PacketChan <- encodePacket(&lastPacket, 0, &mc.gain)
+		case b = <-*mc.ReadChan:
 			switch readstate {
 			case 0:
 				if b == '\xc0' {
@@ -110,14 +91,14 @@ func (mc *MindControl) DecodeStream() {
 				}
 				for seqDiff > 1 {
 					lastPacket[1]++
-					mc.PacketStream <- encodePacket(&lastPacket, 100-seqDiff, &mc.gain)
+					mc.PacketChan <- encodePacket(&lastPacket, 100-seqDiff, &mc.gain)
 					time.Sleep(4 * time.Millisecond)
 					seqDiff--
 				}
 				fallthrough
 			case 3:
 				for j := 2; j < 32; j++ {
-					thisPacket[j] = <-mc.ByteStream
+					thisPacket[j] = <-*mc.ReadChan
 				}
 				readstate = 4
 			case 4:
@@ -126,7 +107,7 @@ func (mc *MindControl) DecodeStream() {
 					thisPacket[32] = b
 					lastPacket = thisPacket
 					if syncPktCtr > syncPktThresh {
-						mc.PacketStream <- encodePacket(&thisPacket, 100, &mc.gain)
+						mc.PacketChan <- encodePacket(&thisPacket, 100, &mc.gain)
 					} else {
 						syncPktCtr++
 					}
@@ -142,7 +123,7 @@ func (mc *MindControl) DecodeStream() {
 	}
 }
 
-func GenTestPackets(stop chan bool) {
+func (mc *MindControl) GenTestPackets(stop chan bool) {
 	var gain float64 = 24
 	sign := func() int32 {
 		if rand.Int31() > 1<<16 {
@@ -165,8 +146,29 @@ func GenTestPackets(stop chan bool) {
 			packet.Chan6 = scaleToVolts(rand.Int31n(1<<23) * sign(), gain)
 			packet.Chan7 = scaleToVolts(rand.Int31n(1<<23) * sign(), gain)
 			packet.Chan8 = scaleToVolts(rand.Int31n(1<<23) * sign(), gain)
-			mc.PacketStream <- packet
+			mc.PacketChan <- packet
 			time.Sleep(4 * time.Millisecond)
+		}
+	}
+}
+func (mc *MindControl) sendPackets() {
+	last_second := time.Now().UnixNano()
+	second := time.Now().UnixNano()
+
+	pb := NewPacketBatcher()
+	for i := 1; ; i++ {
+		p := <-mc.PacketChan
+		pb.packets[i%packetBatchSize] = p
+
+		if i%packetBatchSize == 0 {
+			pb.batch()
+			h.broadcast <- pb
+			pb = NewPacketBatcher()
+		}
+		if i%250 == 0 {
+			second = time.Now().UnixNano()
+			log.Println(second-last_second, "nanoseconds have elapsed between 250 samples.")
+			last_second = second
 		}
 	}
 }
