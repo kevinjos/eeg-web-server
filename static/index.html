@@ -63,15 +63,16 @@
 		</canvas>
 		
 		<script id="vertShader" type="x-shader/x-vertex">
-			uniform mat4 modelViewMat;
+			uniform mat4 modelMat;
+			uniform mat4 viewMat;
 			uniform mat4 projMat;
 			
 			attribute vec3 pos;
 			
 			varying vec4 worldPos;
 			void main() {
-				worldPos = modelViewMat * vec4(pos, 1);
-				gl_Position = projMat*worldPos;
+				worldPos = modelMat * vec4(pos, 1);
+				gl_Position = projMat * viewMat * worldPos;
 			}
 			
 		</script>
@@ -87,6 +88,8 @@
 		
 		<script src="http://localhost:8888/js/webgl-debug.js"></script>
 		
+		<script src="/js/gl-matrix-min.js"></script>
+		<script src="/js/geometry.js"></script>
 		<script src="/js/main.js"></script>
 
 		<div id="streamcommands" align="center">
