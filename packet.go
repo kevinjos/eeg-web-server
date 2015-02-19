@@ -1,13 +1,42 @@
 package main
 
 import (
+  "math/cmplx"
 	"strconv"
+  "github.com/runningwild/go-fftw/fftw"
 )
 
 type PacketBatcher struct {
 	packets       [packetBatchSize]*Packet
 	Chans         map[string][packetBatchSize]float64
+  FFTs  map[string][]float64
 	SignalQuality float64
+}
+
+func NewPacketBatcher() *PacketBatcher {
+	chans := make(map[string][packetBatchSize]float64)
+	ffts := make(map[string][]float64)
+	var pkts [packetBatchSize]*Packet
+	return &PacketBatcher{
+		Chans:   chans,
+    FFTs: ffts,
+		packets: pkts,
+	}
+}
+
+func (pb *PacketBatcher) dft(input [packetBatchSize]float64) []float64 {
+  data := fftw.NewArray(packetBatchSize)
+  for idx, val := range input {
+    data.Set(idx, complex(val, 0.0))
+  }
+  forward  := fftw.NewPlan(data, data, fftw.Forward, fftw.Estimate)
+  forward.Execute()
+  data_out := make([]float64, packetBatchSize)
+  for idx, val := range data.Elems {
+    // data_out[idx] = real(val)
+    data_out[idx] = cmplx.Abs(val);
+  }
+  return data_out
 }
 
 func (pb *PacketBatcher) batch() {
@@ -38,21 +67,13 @@ func (pb *PacketBatcher) batch() {
 	for i, ch := range chans {
 		if *ch != emptyChan {
 			pb.Chans["Chan"+strconv.Itoa(i+1)] = *ch
+			pb.FFTs["FFTChan"+strconv.Itoa(i+1)] = pb.dft(*ch)
 		}
 	}
 	for _, sq := range signalQuality {
 		pb.SignalQuality += float64(sq)
 	}
 	pb.SignalQuality /= packetBatchSize
-}
-
-func NewPacketBatcher() *PacketBatcher {
-	chans := make(map[string][packetBatchSize]float64)
-	var pkts [packetBatchSize]*Packet
-	return &PacketBatcher{
-		Chans:   chans,
-		packets: pkts,
-	}
 }
 
 type Packet struct {

@@ -126,7 +126,7 @@ func (mc *MindControl) DecodeStream() {
 func (mc *MindControl) GenTestPackets(stop chan bool) {
 	var gain float64 = 24
 	sign := func() int32 {
-		if rand.Int31() > 1<<16 {
+		if rand.Int31() > (1<<30) {
 			return -1
 		} else {
 			return 1

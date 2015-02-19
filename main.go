@@ -10,7 +10,7 @@ var addr = flag.String("addr", ":8888", "http service address")
 
 const (
 	samplesPerSecond = 250
-	packetBatchSize  = 100
+	packetBatchSize  = 250
 	readTimeout      = 1000 * packetBatchSize / samplesPerSecond * time.Millisecond
 	readBufferSize   = 33 * packetBatchSize
 	baud             = 115200

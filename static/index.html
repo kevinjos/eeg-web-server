@@ -10,7 +10,7 @@
 				}
 				conn.onmessage = function(evt) {
 					data = JSON.parse(evt.data)
-					console.log("received data:", data.Chans.Chan1)
+					console.log("received data:", data)
 				}
 				conn.onopen = function(evt) {
 					console.log("opening")
