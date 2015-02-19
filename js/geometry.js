@@ -47,8 +47,8 @@ var makeGraph = function(data) {
 	|  |\4/|\ /|\
 	|  |1e3| + |
 	V  |/2\|/ \|/ ...
-		 c---d---+-
-		 |\ /|\ /|\
+	   c---d---+-
+	   |\ /|\ /|\
 	      .
 	   	  .
 	      .
@@ -62,7 +62,7 @@ var makeGraph = function(data) {
 	var vertArray = new Float32Array(3 * numVerts);
 	for (var i = 0; i < r; ++i) {
 		for (var j = 0; j < c; ++j) {
-			var off = 36*(r*i+j);
+			var off = 36*(c*i+j);
 			var a_x = j/c;
 			var b_x = (j+1)/c;
 			var c_x = a_x;
@@ -131,7 +131,6 @@ var makeVbo = function(geometry, mode){
 	mode = mode || gl.STATIC_DRAW;
 	var vbo = gl.createBuffer();
 	gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-	gl.bufferData(gl.ARRAY_BUFFER, geometry.length * 4, mode);
 	gl.bufferData(gl.ARRAY_BUFFER, geometry, mode);
 	return vbo;
 }

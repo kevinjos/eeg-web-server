@@ -19,6 +19,14 @@ var toFloat32Array = function(a) {
 	return f32a;
 }
 
+var oldMousePos, mouseDelta = vec2.create();
+
+var cameraPhi = Math.PI/4;
+var cameraTheta = 0;
+
+var viewMatLoc;
+var geometry;
+
 var scope = {
 	getContext: function()  {
 		return gl; 
@@ -26,6 +34,11 @@ var scope = {
 	
 	init: function(data) {
 		glMatrix.setMatrixArrayType(Float32Array);
+		
+		canvas.onmousemove = scope.onMouseMove;
+		requestAnimationFrame(scope.onStep);
+		
+		gl.enable(gl.DEPTH_TEST);
 		
 		scope.data = data;
 		var rows = data.length;
@@ -38,16 +51,17 @@ var scope = {
 		var posIndex = gl.getAttribLocation(program, "pos");
 		
 		var modelMatLoc = gl.getUniformLocation(program, 'modelMat');
-		var viewMatLoc = gl.getUniformLocation(program, 'viewMat');
+		viewMatLoc = gl.getUniformLocation(program, 'viewMat');
 		var projMatLoc = gl.getUniformLocation(program, 'projMat');
 		
 		gl.useProgram(program);
 		var modelMat = mat4.create();
+		mat4.translate(modelMat, modelMat, vec3.fromValues(-0.5, 0, -0.5));
 		var viewMat = mat4.create()
 		mat4.translate(viewMat, viewMat, vec3.fromValues(0, 0, -3));
 		mat4.rotateX(viewMat, viewMat, Math.PI/2);
 		var n = 0.01, f = 1000;
-		var b = -0.001, t = 0.001;
+		var b = -0.01, t = 0.01;
 		var l = -0.01, r = 0.01;
 		var projMat = mat4.frustum(mat4.create(), l, r, b, t, n, f);
 		
@@ -58,7 +72,7 @@ var scope = {
 		
 		gl.useProgram(program);
 		
-		var geometry = makeGraph(data);
+		geometry = makeGraph(data);
 		var vbo = makeVbo(geometry);
 		gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
 		
@@ -73,7 +87,7 @@ var scope = {
 		
 		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 		gl.drawArrays(gl.TRIANGLES, 0, geometry.length/3);
-		gl.finish();
+		//gl.finish();
 		console.log('done');
 		
 	},
@@ -102,11 +116,51 @@ var scope = {
 		return program;
 	},
 	
+	onMouseMove: function(event) {
+		if (!oldMousePos) {
+			oldMousePos = vec2.fromValues(event.x, event.y);
+			mouseDelta = vec2.create();
+			return;
+		}
+		vec2.set(mouseDelta, event.x - oldMousePos[0], event.y - oldMousePos[1]);
+		vec2.set(oldMousePos, event.x, event.y);
+	},
+	
+	onStep: function() {
+		if (mouseDelta[0] === 0 && mouseDelta[1] === 0) {
+			requestAnimationFrame(scope.onStep);
+			return;
+		}
+		cameraTheta += mouseDelta[0] / 30;
+		cameraPhi += mouseDelta[1] / 30;
+		if (cameraPhi > Math.PI/2) cameraPhi = Math.PI/2;
+		if (cameraPhi < -Math.PI/2) cameraPhi = -Math.PI/2;
+		
+		var viewMat = mat4.create();
+		
+		mat4.translate(viewMat, viewMat, vec3.fromValues(0, 0, -2));
+		
+		mat4.rotateX(viewMat, viewMat, cameraPhi);
+		mat4.rotateY(viewMat, viewMat, cameraTheta);
+		
+		
+		
+		
+		gl.uniformMatrix4fv(viewMatLoc, false, viewMat);
+		
+		gl.clearColor(0, 0, 1, 1);
+		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+		gl.drawArrays(gl.TRIANGLES, 0, geometry.length/3);
+		
+		vec2.set(mouseDelta, 0, 0);
+		requestAnimationFrame(scope.onStep);
+	},
+	
 };
 window.bciVis = scope;
 
 var zeroData = [];
-for (var i = 0; i < 100; ++i) {
+for (var i = 0; i < 8; ++i) {
 	zeroData.push([]);
 	for (var j = 0; j < 8; ++j) {
 		zeroData[i].push((i+j) % 2);
