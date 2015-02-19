@@ -11,6 +11,8 @@
 				conn.onmessage = function(evt) {
 					data = JSON.parse(evt.data)
 					console.log("received data:", data)
+					var newDatum = data.FFTs.FFTChan1.slice(0, 125)
+					bciVis.updateData(newDatum);
 				}
 				conn.onopen = function(evt) {
 					console.log("opening")
@@ -83,6 +85,8 @@
 			
 			void main() {
 				gl_FragColor = vec4(1.0 - worldPos.y, worldPos.y, 0.0, 1.0);
+				gl_FragColor.xy = normalize(gl_FragColor.xy);
+				
 			}
 		</script>
 		

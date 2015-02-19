@@ -27,6 +27,8 @@ var cameraTheta = 0;
 var viewMatLoc;
 var geometry;
 
+var vbo;
+
 var scope = {
 	getContext: function()  {
 		return gl; 
@@ -57,6 +59,7 @@ var scope = {
 		gl.useProgram(program);
 		var modelMat = mat4.create();
 		mat4.translate(modelMat, modelMat, vec3.fromValues(-0.5, 0, -0.5));
+		mat4.scale(modelMat, modelMat, vec3.fromValues(1, 1/3, 1));
 		var viewMat = mat4.create()
 		mat4.translate(viewMat, viewMat, vec3.fromValues(0, 0, -3));
 		mat4.rotateX(viewMat, viewMat, Math.PI/2);
@@ -73,7 +76,7 @@ var scope = {
 		gl.useProgram(program);
 		
 		geometry = makeGraph(data);
-		var vbo = makeVbo(geometry);
+		vbo = makeVbo(geometry, gl.DYNAMIC_DRAW);
 		gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
 		
 		gl.vertexAttribPointer(posIndex, 3, gl.FLOAT, false,  4 * 3, 0);
@@ -126,6 +129,14 @@ var scope = {
 		vec2.set(oldMousePos, event.x, event.y);
 	},
 	
+	updateData: function(newDatum) {
+		scope.data.splice(0, 0, newDatum);
+		scope.data.splice(scope.data.length - 1, 1);
+		geometry = makeGraph(scope.data);
+		makeVbo(geometry, gl.DYNAMIC_DRAW, vbo);
+		scope.render();
+	},
+	
 	onStep: function() {
 		if (mouseDelta[0] === 0 && mouseDelta[1] === 0) {
 			requestAnimationFrame(scope.onStep);
@@ -148,22 +159,26 @@ var scope = {
 		
 		gl.uniformMatrix4fv(viewMatLoc, false, viewMat);
 		
-		gl.clearColor(0, 0, 1, 1);
-		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-		gl.drawArrays(gl.TRIANGLES, 0, geometry.length/3);
+		scope.render()
 		
 		vec2.set(mouseDelta, 0, 0);
 		requestAnimationFrame(scope.onStep);
+	},
+	
+	render: function() {
+		gl.clearColor(0, 0, 1, 1);
+		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+		gl.drawArrays(gl.TRIANGLES, 0, geometry.length/3);
 	},
 	
 };
 window.bciVis = scope;
 
 var zeroData = [];
-for (var i = 0; i < 8; ++i) {
+for (var i = 0; i < 20; ++i) {
 	zeroData.push([]);
-	for (var j = 0; j < 8; ++j) {
-		zeroData[i].push((i+j) % 2);
+	for (var j = 0; j < 125; ++j) {
+		zeroData[i].push(0);
 	}
 }
 

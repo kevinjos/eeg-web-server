@@ -126,10 +126,11 @@ var makeGraph = function(data) {
 
 
 
-var makeVbo = function(geometry, mode){
-	debugger;
+var makeVbo = function(geometry, mode, vbo){
 	mode = mode || gl.STATIC_DRAW;
-	var vbo = gl.createBuffer();
+	if (!vbo) {
+		vbo = gl.createBuffer();
+	}
 	gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
 	gl.bufferData(gl.ARRAY_BUFFER, geometry, mode);
 	return vbo;
