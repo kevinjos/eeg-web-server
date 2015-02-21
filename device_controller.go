@@ -4,28 +4,37 @@ import (
 	"log"
 	"math/rand"
 	"time"
-	"os"
 )
 
 type MindControl struct {
-	ReadChan     *chan byte
-	PacketChan   chan *Packet
-	ResetChan    chan bool
-	genToggleChan chan bool
-	SerialDevice *OpenBCI
-	gain         [8]float64
+	ReadChan         *chan byte
+	PacketChan       chan *Packet
+	ResetChan        chan bool
+	genToggleChan    chan bool
+	quitGenTest      chan bool
+	quitDecodeStream chan bool
+	quitSendPackets  chan bool
+	shutdown         chan bool
+	SerialDevice     *OpenBCI
+	broadcast        chan *PacketBatcher
+	gain             [8]float64
 }
 
-func NewMindControl() *MindControl {
+func NewMindControl(broadcast chan *PacketBatcher, shutdown chan bool) *MindControl {
 	//Set up the serial device
 	serialDevice := NewOpenBCI()
 	return &MindControl{
-		ReadChan:     &serialDevice.readChan,
-		PacketChan:   make(chan *Packet),
-		ResetChan:    make(chan bool),
-		genToggleChan:	make(chan bool),
-		SerialDevice: serialDevice,
-		gain:         [8]float64{24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0},
+		ReadChan:         &serialDevice.readChan,
+		PacketChan:       make(chan *Packet),
+		ResetChan:        make(chan bool),
+		quitGenTest:      make(chan bool),
+		quitDecodeStream: make(chan bool),
+		quitSendPackets:  make(chan bool),
+		genToggleChan:    make(chan bool),
+		SerialDevice:     serialDevice,
+		gain:             [8]float64{24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0},
+		broadcast:        broadcast,
+		shutdown:         shutdown,
 	}
 }
 
@@ -36,12 +45,14 @@ func (mc *MindControl) Open() {
 }
 
 func (mc *MindControl) Close() {
+	mc.quitSendPackets <- true
+	mc.quitDecodeStream <- true
+	mc.quitGenTest <- true
 	mc.SerialDevice.Close()
-	h.Close()
 	close(mc.PacketChan)
 	close(mc.ResetChan)
 	close(mc.genToggleChan)
-	os.Exit(1)
+	mc.shutdown <- true
 }
 
 func (mc *MindControl) Start() {
@@ -67,17 +78,15 @@ func (mc *MindControl) DecodeStream() {
 	syncPktThresh = 2
 	for {
 		select {
+		case <-mc.quitDecodeStream:
+			return
 		case <-resetMonitorChan:
 			mc.ReadChan = &mc.SerialDevice.readChan
-		case reset := <-mc.ResetChan:
+		case <-mc.ResetChan:
 			readstate, syncPktCtr = 0, 0
-			if reset {
-				var bogusChan chan byte
-				mc.ReadChan = &bogusChan
-				mc.SerialDevice.resetChan <- resetMonitorChan
-			} else {
-				mc.SerialDevice.writeChan <- "s"
-			}
+			var bogusChan chan byte
+			mc.ReadChan = &bogusChan
+			mc.SerialDevice.resetChan <- resetMonitorChan
 		case <-mc.SerialDevice.timeoutChan:
 			lastPacket := lastPacket
 			mc.PacketChan <- encodePacket(&lastPacket, 0, &mc.gain)
@@ -145,9 +154,13 @@ func (mc *MindControl) GenTestPackets() {
 	}
 	for {
 		select {
+		case <-mc.quitGenTest:
+			return
 		case <-mc.genToggleChan:
 			for {
 				select {
+				case <-mc.quitGenTest:
+					return
 				case <-mc.genToggleChan:
 					<-mc.genToggleChan
 				default:
@@ -172,19 +185,26 @@ func (mc *MindControl) sendPackets() {
 	second := time.Now().UnixNano()
 
 	pb := NewPacketBatcher()
-	for i := 1; ; i++ {
-		p := <-mc.PacketChan
-		pb.packets[i%packetBatchSize] = p
+	var i int
+	for {
+		select {
+		case <-mc.quitSendPackets:
+			return
+		default:
+			i++
+			p := <-mc.PacketChan
+			pb.packets[i%packetBatchSize] = p
 
-		if i%packetBatchSize == 0 {
-			pb.batch()
-			h.broadcast <- pb
-			pb = NewPacketBatcher()
-		}
-		if i%250 == 0 {
-			second = time.Now().UnixNano()
-			log.Println(second-last_second, "nanoseconds have elapsed between 250 samples.")
-			last_second = second
+			if i%packetBatchSize == 0 {
+				pb.batch()
+				mc.broadcast <- pb
+				pb = NewPacketBatcher()
+			}
+			if i%250 == 0 {
+				second = time.Now().UnixNano()
+				log.Println(second-last_second, "nanoseconds have elapsed between 250 samples.")
+				last_second = second
+			}
 		}
 	}
 }

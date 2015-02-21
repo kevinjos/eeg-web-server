@@ -13,6 +13,8 @@ type OpenBCI struct {
 	timeoutChan   chan bool
 	resetChan     chan chan bool
 	pauseReadChan chan chan bool
+	quitCommand   chan bool
+	quitRead      chan bool
 	conn          io.ReadWriteCloser
 }
 
@@ -21,6 +23,8 @@ func NewOpenBCI() *OpenBCI {
 		writeChan:     make(chan string, 64),
 		readChan:      make(chan byte, readBufferSize),
 		timeoutChan:   make(chan bool),
+		quitCommand:   make(chan bool),
+		quitRead:      make(chan bool),
 		resetChan:     make(chan chan bool),
 		pauseReadChan: make(chan chan bool),
 	}
@@ -28,7 +32,9 @@ func NewOpenBCI() *OpenBCI {
 
 func (d *OpenBCI) Close() {
 	d.write("s")
+	d.quitCommand <- true
 	if d.conn != nil {
+		d.quitRead <- true
 		d.conn.Close()
 	}
 	close(d.timeoutChan)
@@ -45,6 +51,8 @@ func (d *OpenBCI) command() {
 			d.write(s)
 		case resumePacketStream := <-d.resetChan:
 			go d.reset(resumePacketStream)
+		case <-d.quitCommand:
+			return
 		}
 	}
 }
@@ -55,6 +63,8 @@ func (d *OpenBCI) read() {
 		select {
 		case resumeReadChan := <-d.pauseReadChan:
 			<-resumeReadChan
+		case <-d.quitRead:
+			return
 		default:
 			if d.conn != nil {
 				n, err := d.conn.Read(buf)

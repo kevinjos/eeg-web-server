@@ -18,9 +18,12 @@ const (
 )
 
 func main() {
-	var mc *MindControl = NewMindControl()
+	h := NewHub()
+	shutdown := make(chan bool)
+	mc := NewMindControl(h.broadcast, shutdown)
+	defer h.Close()
 	handle := NewHandle(mc)
-	http.HandleFunc("/ws", wsPacketHandler)
+	http.HandleFunc("/ws", h.wsPacketHandler)
 	http.HandleFunc("/", handle.rootHandler)
 	http.HandleFunc("/x/", handle.commandHandler)
 	http.HandleFunc("/open", handle.openHandler)
@@ -32,7 +35,11 @@ func main() {
 	http.HandleFunc("/js/", handle.jsHandler)
 	go h.Run()
 	go mc.Start()
+	go http.ListenAndServe(*addr, nil)
 	for {
-		http.ListenAndServe(*addr, nil)
+		select {
+		case <-shutdown:
+			return
+		}
 	}
 }

@@ -53,7 +53,7 @@ func (ws *WSConn) writeJson(payload *PacketBatcher) error {
 	return ws.wsConn.WriteJSON(payload)
 }
 
-func (ws *WSConn) WritePump() {
+func (ws *WSConn) WritePump(h *hub) {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
@@ -76,7 +76,7 @@ func (ws *WSConn) WritePump() {
 
 //The brower is responsible for closing the websocket connection.
 //To do so it will write a close conn message picked up by ReadPump.
-func (ws *WSConn) ReadPump() {
+func (ws *WSConn) ReadPump(h *hub) {
 	defer func() {
 		h.unregister <- ws
 		ws.wsConn.Close()

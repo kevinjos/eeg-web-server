@@ -1,5 +1,9 @@
 package main
 
+import (
+	"net/http"
+)
+
 // hub maintains the set of active connections and broadcasts messages to the
 // connections.
 type hub struct {
@@ -14,8 +18,6 @@ type hub struct {
 	// Close the goroutine
 	quit chan bool
 }
-
-var h *hub = NewHub()
 
 func NewHub() *hub {
 	return &hub{
@@ -60,4 +62,20 @@ func (h *hub) Run() {
 			return
 		}
 	}
+}
+
+func (h *hub) wsPacketHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+
+	wsConn, err := NewWSConn(w, r)
+	if err != nil {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	h.register <- wsConn
+	go wsConn.WritePump(h)
+	go wsConn.ReadPump(h)
 }

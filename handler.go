@@ -17,8 +17,33 @@ func NewHandle(mindcontrol *MindControl) *Handle {
 	}
 }
 
-var channelOn = map[string]string{"1": "!", "2": "@", "3": "#", "4": "$", "5": "%", "6": "^", "7": "&", "8": "*"}
-var gainMap = map[string]float64{"0": 1.0, "1": 2.0, "2": 4.0, "3": 6.0, "4": 8.0, "5": 12.0, "6": 24.0}
+func (handle *Handle) parseCommand(path string) string {
+	var command string
+	channelOn := map[string]string{"1": "!", "2": "@", "3": "#", "4": "$", "5": "%", "6": "^", "7": "&", "8": "*"}
+	gainMap := map[string]float64{"0": 1.0, "1": 2.0, "2": 4.0, "3": 6.0, "4": 8.0, "5": 12.0, "6": 24.0}
+	p := strings.Split(path, "/")
+	channel := p[2]
+	switch {
+	case len(p) < 4:
+		command = ""
+	case p[3] == "true":
+		command = channelOn[channel]
+	case p[3] == "false":
+		command = channel
+	case channel == "0": //send command to all channels
+		c := make([]string, 8)
+		for i := 0; i < 8; i++ {
+			c[i] = p[3][0:1] + strconv.Itoa(i+1) + p[3][2:]
+			handle.mc.gain[i] = gainMap[p[3][3:4]]
+		}
+		command = c[0] + c[1] + c[2] + c[3] + c[4] + c[5] + c[6] + c[7]
+	case p[3][0:1] == "x":
+		ci := channel[0] - 49
+		handle.mc.gain[ci] = gainMap[p[3][3:4]]
+		command = p[3]
+	}
+	return command
+}
 
 func (handle *Handle) jsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
@@ -42,32 +67,6 @@ func (handle *Handle) rootHandler(w http.ResponseWriter, r *http.Request) {
 	rootTempl := template.Must(template.ParseFiles("static/index.html"))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	rootTempl.Execute(w, r.Host)
-}
-
-func (handle *Handle) parseCommand(path string) string {
-	var command string
-	p := strings.Split(path, "/")
-	channel := p[2]
-	switch {
-	case len(p) < 4:
-		command = ""
-	case p[3] == "true":
-		command = channelOn[channel]
-	case p[3] == "false":
-		command = channel
-	case channel == "0": //send command to all channels
-		c := make([]string, 8)
-		for i := 0; i < 8; i++ {
-			c[i] = p[3][0:1] + strconv.Itoa(i+1) + p[3][2:]
-			handle.mc.gain[i] = gainMap[p[3][3:4]]
-		}
-		command = c[0] + c[1] + c[2] + c[3] + c[4] + c[5] + c[6] + c[7]
-	case p[3][0:1] == "x":
-		ci := channel[0] - 49
-		handle.mc.gain[ci] = gainMap[p[3][3:4]]
-		command = p[3]
-	}
-	return command
 }
 
 func (handle *Handle) commandHandler(w http.ResponseWriter, r *http.Request) {
@@ -97,12 +96,12 @@ func (handle *Handle) openHandler(w http.ResponseWriter, r *http.Request) {
 	handle.mc.Open()
 }
 
-func (handle *Handle) resetHandler(w http.ResponseWriter, r *http.Request) {
+func (handle *Handle) closeHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	handle.mc.ResetChan <- true
+	handle.mc.Close()
 }
 
 func (handle *Handle) startHandler(w http.ResponseWriter, r *http.Request) {
@@ -118,15 +117,15 @@ func (handle *Handle) stopHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	handle.mc.ResetChan <- false
+	handle.mc.SerialDevice.writeChan <- "s"
 }
 
-func (handle *Handle) closeHandler(w http.ResponseWriter, r *http.Request) {
+func (handle *Handle) resetHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	handle.mc.Close()
+	handle.mc.ResetChan <- true
 }
 
 func (handle *Handle) testHandler(w http.ResponseWriter, r *http.Request) {
@@ -135,20 +134,4 @@ func (handle *Handle) testHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	handle.mc.genToggleChan <- true
-}
-
-func wsPacketHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		http.Error(w, "Method not allowed", 405)
-		return
-	}
-
-	wsConn, err := NewWSConn(w, r)
-	if err != nil {
-		http.Error(w, "Method not allowed", 405)
-		return
-	}
-	h.register <- wsConn
-	go wsConn.WritePump()
-	go wsConn.ReadPump()
 }
