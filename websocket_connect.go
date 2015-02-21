@@ -9,13 +9,13 @@ import (
 
 const (
 	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
+	writeWait = 1 * time.Second
 	// Time allowed to read the next pong message from the peer.
 	pongWait = 60 * time.Second
 	// Send pings to peer with this period. Must be less than pongWait.
 	pingPeriod = (pongWait * 9) / 10
-	// Maximum message size allowed from peer.
-	//maxMessageSize = 512
+	// Max message size allowed to be written to server over websocket.
+	maxMessageSize = 512
 )
 
 var upgrader = websocket.Upgrader{
@@ -57,6 +57,7 @@ func (ws *WSConn) WritePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
+		h.unregister <- ws
 		ws.wsConn.Close()
 	}()
 	for {
@@ -69,6 +70,24 @@ func (ws *WSConn) WritePump() {
 			if err := ws.write(websocket.PingMessage, []byte{}); err != nil {
 				return
 			}
+		}
+	}
+}
+
+//The brower is responsible for closing the websocket connection.
+//To do so it will write a close conn message picked up by ReadPump.
+func (ws *WSConn) ReadPump() {
+	defer func() {
+		h.unregister <- ws
+		ws.wsConn.Close()
+	}()
+	ws.wsConn.SetReadLimit(maxMessageSize)
+	ws.wsConn.SetReadDeadline(time.Now().Add(pongWait))
+	ws.wsConn.SetPongHandler(func(string) error { ws.wsConn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	for {
+		_, _, err := ws.wsConn.ReadMessage()
+		if err != nil {
+			break
 		}
 	}
 }

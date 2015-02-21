@@ -1,15 +1,15 @@
 package main
 
 import (
-  "math/cmplx"
+	"github.com/runningwild/go-fftw/fftw"
+	"math/cmplx"
 	"strconv"
-  "github.com/runningwild/go-fftw/fftw"
 )
 
 type PacketBatcher struct {
 	packets       [packetBatchSize]*Packet
 	Chans         map[string][packetBatchSize]float64
-  FFTs  map[string][]float64
+	FFTs          map[string][]float64
 	SignalQuality float64
 }
 
@@ -19,24 +19,24 @@ func NewPacketBatcher() *PacketBatcher {
 	var pkts [packetBatchSize]*Packet
 	return &PacketBatcher{
 		Chans:   chans,
-    FFTs: ffts,
+		FFTs:    ffts,
 		packets: pkts,
 	}
 }
 
 func (pb *PacketBatcher) dft(input [packetBatchSize]float64) []float64 {
-  data := fftw.NewArray(packetBatchSize)
-  for idx, val := range input {
-    data.Set(idx, complex(val, 0.0))
-  }
-  forward  := fftw.NewPlan(data, data, fftw.Forward, fftw.Estimate)
-  forward.Execute()
-  data_out := make([]float64, packetBatchSize)
-  for idx, val := range data.Elems {
-    // data_out[idx] = real(val)
-    data_out[idx] = cmplx.Abs(val);
-  }
-  return data_out
+	data := fftw.NewArray(packetBatchSize)
+	for idx, val := range input {
+		data.Set(idx, complex(val, 0.0))
+	}
+	forward := fftw.NewPlan(data, data, fftw.Forward, fftw.Estimate)
+	forward.Execute()
+	data_out := make([]float64, packetBatchSize)
+	for idx, val := range data.Elems {
+		// data_out[idx] = real(val)
+		data_out[idx] = cmplx.Abs(val)
+	}
+	return data_out
 }
 
 func (pb *PacketBatcher) batch() {

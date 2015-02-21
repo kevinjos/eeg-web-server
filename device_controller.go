@@ -2,42 +2,51 @@ package main
 
 import (
 	"log"
-	"time"
 	"math/rand"
+	"time"
+	"os"
 )
 
 type MindControl struct {
-	ReadChan	*chan byte
-	PacketChan       chan *Packet
-	ResetChan        chan bool
-	SerialDevice       *OpenBCI
-	gain               [8]float64
+	ReadChan     *chan byte
+	PacketChan   chan *Packet
+	ResetChan    chan bool
+	SerialDevice *OpenBCI
+	gain         [8]float64
 }
 
 func NewMindControl() *MindControl {
 	//Set up the serial device
 	serialDevice := NewOpenBCI()
 	return &MindControl{
-		ReadChan: &serialDevice.readChan,
-		PacketChan: make(chan *Packet),
-		ResetChan:	make(chan bool),
-		SerialDevice:       serialDevice,
-		gain: [8]float64{24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0},
+		ReadChan:     &serialDevice.readChan,
+		PacketChan:   make(chan *Packet),
+		ResetChan:    make(chan bool),
+		SerialDevice: serialDevice,
+		gain:         [8]float64{24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0},
 	}
 }
 
 func (mc *MindControl) Open() {
 	mc.SerialDevice.open()
-	go mc.Read()
 	mc.ResetChan <- true
+	go mc.SerialDevice.read()
 }
 
-func (mc *MindControl) ReadWriteClose() {
-	mc.SerialDevice.ReadWriteClose()
+func (mc *MindControl) Close() {
+	h.Close()
+	mc.SerialDevice.write("s")
+	close(mc.SerialDevice.readChan)
+	close(mc.SerialDevice.writeChan)
+	close(mc.PacketChan)
+	mc.SerialDevice.conn.Close()
+	os.Exit(1)
 }
 
-func (mc *MindControl) Read() {
-	mc.SerialDevice.read()
+func (mc *MindControl) Start() {
+	go mc.sendPackets()
+	go mc.DecodeStream()
+	go mc.SerialDevice.command()
 }
 
 //decodeStream implements the openbci packet protocol to
@@ -126,7 +135,7 @@ func (mc *MindControl) DecodeStream() {
 func (mc *MindControl) GenTestPackets(stop chan bool) {
 	var gain float64 = 24
 	sign := func() int32 {
-		if rand.Int31() > (1<<30) {
+		if rand.Int31() > (1 << 30) {
 			return -1
 		} else {
 			return 1
@@ -138,14 +147,14 @@ func (mc *MindControl) GenTestPackets(stop chan bool) {
 			return
 		default:
 			packet := NewPacket()
-			packet.Chan1 = scaleToVolts(rand.Int31n(1<<23) * sign(), gain)
-			packet.Chan2 = scaleToVolts(rand.Int31n(1<<23) * sign(), gain)
-			packet.Chan3 = scaleToVolts(rand.Int31n(1<<23) * sign(), gain)
-			packet.Chan4 = scaleToVolts(rand.Int31n(1<<23) * sign(), gain)
-			packet.Chan5 = scaleToVolts(rand.Int31n(1<<23) * sign(), gain)
-			packet.Chan6 = scaleToVolts(rand.Int31n(1<<23) * sign(), gain)
-			packet.Chan7 = scaleToVolts(rand.Int31n(1<<23) * sign(), gain)
-			packet.Chan8 = scaleToVolts(rand.Int31n(1<<23) * sign(), gain)
+			packet.Chan1 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+			packet.Chan2 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+			packet.Chan3 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+			packet.Chan4 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+			packet.Chan5 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+			packet.Chan6 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+			packet.Chan7 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+			packet.Chan8 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
 			mc.PacketChan <- packet
 			time.Sleep(4 * time.Millisecond)
 		}

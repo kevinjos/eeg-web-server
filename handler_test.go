@@ -19,8 +19,9 @@ var testsparsecommand = []testparsecommandpair{
 }
 
 func TestParseComman(t *testing.T) {
+	handle := NewHandle(&MindControl{})
 	for _, pair := range testsparsecommand {
-		res := parseCommand(pair.data)
+		res := handle.parseCommand(pair.data)
 		if res != pair.result {
 			t.Error(
 				"For", pair.data,

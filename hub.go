@@ -11,6 +11,8 @@ type hub struct {
 	register chan *WSConn
 	// Unregister requests from connections.
 	unregister chan *WSConn
+	// Close the goroutine
+	quit chan bool
 }
 
 var h *hub = NewHub()
@@ -21,7 +23,16 @@ func NewHub() *hub {
 		register:    make(chan *WSConn),
 		unregister:  make(chan *WSConn),
 		connections: make(map[*WSConn]bool),
+		quit:        make(chan bool),
 	}
+}
+
+func (h *hub) Close() {
+	for c, _ := range h.connections {
+		c.wsConn.Close()
+		h.unregister <- c
+	}
+	h.quit <- true
 }
 
 func (h *hub) Run() {
@@ -43,6 +54,8 @@ func (h *hub) Run() {
 					delete(h.connections, c)
 				}
 			}
+		case <-h.quit:
+			return
 		}
 	}
 }

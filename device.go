@@ -4,46 +4,36 @@ import (
 	"github.com/tarm/goserial"
 	"io"
 	"log"
-	"os"
 	"time"
 )
 
 type OpenBCI struct {
-	writeChan chan string
-	readChan  chan byte
-	timeoutChan    chan bool
-	resetChan chan chan bool
-	quitChan  chan bool
+	writeChan     chan string
+	readChan      chan byte
+	timeoutChan   chan bool
+	resetChan     chan chan bool
+	quitChan      chan bool
 	pauseReadChan chan chan bool
-	conn        io.ReadWriteCloser
+	conn          io.ReadWriteCloser
 }
 
 func NewOpenBCI() *OpenBCI {
 	return &OpenBCI{
-		writeChan: make(chan string, 64),
-		readChan:	make(chan byte, readBufferSize),
-		timeoutChan: make(chan bool),
-		resetChan:	make(chan chan bool),
-		quitChan:	make(chan bool),
+		writeChan:     make(chan string, 64),
+		readChan:      make(chan byte, readBufferSize),
+		timeoutChan:   make(chan bool),
+		resetChan:     make(chan chan bool),
 		pauseReadChan: make(chan chan bool),
 	}
 }
 
-func (d *OpenBCI) ReadWriteClose() {
+func (d *OpenBCI) command() {
 	for {
 		select {
 		case s := <-d.writeChan:
 			d.write(s)
 		case resumePacketStream := <-d.resetChan:
 			go d.reset(resumePacketStream)
-		case <-d.quitChan:
-			defer func() {
-				d.write("s")
-				d.conn.Close()
-				log.Println("Safely closed the device")
-				os.Exit(1)
-			}()
-			return
 		}
 	}
 }
@@ -116,7 +106,7 @@ func (d *OpenBCI) reset(resumeChan chan bool) {
 				d.writeChan <- "b"
 				resumeChan <- true
 				return
-			} 
+			}
 		}
 	}
 }

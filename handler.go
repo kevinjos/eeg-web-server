@@ -8,12 +8,12 @@ import (
 )
 
 type Handle struct {
-	mc	*MindControl
+	mc *MindControl
 }
 
-func NewHandle (mindcontrol *MindControl) *Handle {
+func NewHandle(mindcontrol *MindControl) *Handle {
 	return &Handle{
-		mc:	mindcontrol,
+		mc: mindcontrol,
 	}
 }
 
@@ -126,7 +126,7 @@ func (handle *Handle) closeHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	handle.mc.SerialDevice.quitChan <- true
+	handle.mc.Close()
 }
 
 func (handle *Handle) testHandler(w http.ResponseWriter, r *http.Request) {
@@ -142,6 +142,7 @@ func wsPacketHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
+
 	wsConn, err := NewWSConn(w, r)
 	if err != nil {
 		http.Error(w, "Method not allowed", 405)
@@ -149,4 +150,5 @@ func wsPacketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	h.register <- wsConn
 	go wsConn.WritePump()
+	go wsConn.ReadPump()
 }

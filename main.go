@@ -31,9 +31,7 @@ func main() {
 	http.HandleFunc("/test", handle.testHandler)
 	http.HandleFunc("/js/", handle.jsHandler)
 	go h.Run()
-	go mc.sendPackets()
-	go mc.DecodeStream()
-	go mc.ReadWriteClose()
+	go mc.Start()
 	for {
 		http.ListenAndServe(*addr, nil)
 	}

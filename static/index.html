@@ -6,59 +6,29 @@
 			if (window["WebSocket"]) {
 				conn = new WebSocket("ws://{{$}}/ws");
 				conn.onclose = function(evt) {
-					console.log("closing")
+					console.log("closing");
 				}
 				conn.onmessage = function(evt) {
-					data = JSON.parse(evt.data)
-					console.log("received data:", data)
-					var newDatum = data.FFTs.FFTChan1.slice(0, 125)
+					data = JSON.parse(evt.data);
+					console.log("received data:", data);
+					var newDatum = data.FFTs.FFTChan1.slice(0, 125);
 					bciVis.updateData(newDatum);
 				}
 				conn.onopen = function(evt) {
-					console.log("opening")
+					console.log("opening");
 				}
 			} else {
-				appendLog($("<div><b>Your browser does not support WebSockets.</b></div>"))
+				appendLog($("<div><b>Your browser does not support WebSockets.</b></div>"));
 			}
-		</script>
-		<script type="text/javascript">
-			jQuery(document).ready(function() {
-				jQuery("#streamcommands :input").click(function() {
-					var postURL = $(this).attr('href');
-					jQuery.ajax({	type:"POST",
-												url:postURL
-											});
-				});
-
-				jQuery("#chantoggle :input").click(function() {
-					var postURL = $(this).attr('href') + 
-												$(this).attr('value') + '/' + 
-												$(this).is(':checked');
-					jQuery.ajax({	type:"POST",
-												url:postURL
-											});
-				});
-
-				jQuery("#complexcommands #update").click(function() {
-					var chan = $("form#longcommand #channel").val()
-					var postURL = $(this).attr('href') + chan + "/x" + chan +
-												$("form#longcommand #power").val() +
-												$("form#longcommand #gain").val() +
-												$("form#longcommand #input").val() +
-												$("form#longcommand #bias").val() +
-												$("form#longcommand #srb2").val() +
-												$("form#longcommand #srb1").val() +
-												"X"
-					jQuery.ajax({	type:"POST",
-												url:postURL
-											});
-				});
-
+			$(window).on('beforeunload', function() {
+				console.log("Closing websocket");
+				conn.close();
 			});
 		</script>
 	</head>
 
 	<body>
+		<script src="/js/handler.js"></script>
 		
 		<canvas id="canvas" width="400" height="300">
 		
