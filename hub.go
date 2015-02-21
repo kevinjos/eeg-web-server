@@ -33,6 +33,8 @@ func (h *hub) Close() {
 		h.unregister <- c
 	}
 	h.quit <- true
+	close(h.broadcast)
+	close(h.register)
 }
 
 func (h *hub) Run() {

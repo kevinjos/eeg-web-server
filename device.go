@@ -12,7 +12,6 @@ type OpenBCI struct {
 	readChan      chan byte
 	timeoutChan   chan bool
 	resetChan     chan chan bool
-	quitChan      chan bool
 	pauseReadChan chan chan bool
 	conn          io.ReadWriteCloser
 }
@@ -25,6 +24,18 @@ func NewOpenBCI() *OpenBCI {
 		resetChan:     make(chan chan bool),
 		pauseReadChan: make(chan chan bool),
 	}
+}
+
+func (d *OpenBCI) Close() {
+	d.write("s")
+	if d.conn != nil {
+		d.conn.Close()
+	}
+	close(d.timeoutChan)
+	close(d.resetChan)
+	close(d.pauseReadChan)
+	close(d.readChan)
+	close(d.writeChan)
 }
 
 func (d *OpenBCI) command() {
@@ -45,14 +56,16 @@ func (d *OpenBCI) read() {
 		case resumeReadChan := <-d.pauseReadChan:
 			<-resumeReadChan
 		default:
-			n, err := d.conn.Read(buf)
-			if err == io.EOF {
-				d.timeoutChan <- true
-			} else if err != nil {
-				log.Fatal("Error reading [", n, "] bytes from serial device: [", err, "]")
-			}
-			for i := 0; i < n; i++ {
-				d.readChan <- buf[i]
+			if d.conn != nil {
+				n, err := d.conn.Read(buf)
+				if err == io.EOF {
+					d.timeoutChan <- true
+				} else if err != nil {
+					log.Fatal("Error reading [", n, "] bytes from serial device: [", err, "]")
+				}
+				for i := 0; i < n; i++ {
+					d.readChan <- buf[i]
+				}
 			}
 		}
 	}
@@ -60,10 +73,12 @@ func (d *OpenBCI) read() {
 
 func (d *OpenBCI) write(s string) {
 	wb := []byte(s)
-	if n, err := d.conn.Write(wb); err != nil {
-		log.Println("Error writing [", n, "] bytes to serial device: [", err, "]")
-	} else {
-		log.Println("Wrote [", n, "] byte", wb, "to the serial device")
+	if d.conn != nil {
+		if n, err := d.conn.Write(wb); err != nil {
+			log.Println("Error writing [", n, "] bytes to serial device: [", err, "]")
+		} else {
+			log.Println("Wrote [", n, "] byte", wb, "to the serial device")
+		}
 	}
 }
 

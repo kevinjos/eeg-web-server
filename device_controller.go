@@ -11,6 +11,7 @@ type MindControl struct {
 	ReadChan     *chan byte
 	PacketChan   chan *Packet
 	ResetChan    chan bool
+	genToggleChan chan bool
 	SerialDevice *OpenBCI
 	gain         [8]float64
 }
@@ -22,6 +23,7 @@ func NewMindControl() *MindControl {
 		ReadChan:     &serialDevice.readChan,
 		PacketChan:   make(chan *Packet),
 		ResetChan:    make(chan bool),
+		genToggleChan:	make(chan bool),
 		SerialDevice: serialDevice,
 		gain:         [8]float64{24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0},
 	}
@@ -34,12 +36,11 @@ func (mc *MindControl) Open() {
 }
 
 func (mc *MindControl) Close() {
+	mc.SerialDevice.Close()
 	h.Close()
-	mc.SerialDevice.write("s")
-	close(mc.SerialDevice.readChan)
-	close(mc.SerialDevice.writeChan)
 	close(mc.PacketChan)
-	mc.SerialDevice.conn.Close()
+	close(mc.ResetChan)
+	close(mc.genToggleChan)
 	os.Exit(1)
 }
 
@@ -47,6 +48,7 @@ func (mc *MindControl) Start() {
 	go mc.sendPackets()
 	go mc.DecodeStream()
 	go mc.SerialDevice.command()
+	go mc.GenTestPackets()
 }
 
 //decodeStream implements the openbci packet protocol to
@@ -132,7 +134,7 @@ func (mc *MindControl) DecodeStream() {
 	}
 }
 
-func (mc *MindControl) GenTestPackets(stop chan bool) {
+func (mc *MindControl) GenTestPackets() {
 	var gain float64 = 24
 	sign := func() int32 {
 		if rand.Int31() > (1 << 30) {
@@ -143,20 +145,25 @@ func (mc *MindControl) GenTestPackets(stop chan bool) {
 	}
 	for {
 		select {
-		case <-stop:
-			return
-		default:
-			packet := NewPacket()
-			packet.Chan1 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
-			packet.Chan2 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
-			packet.Chan3 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
-			packet.Chan4 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
-			packet.Chan5 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
-			packet.Chan6 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
-			packet.Chan7 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
-			packet.Chan8 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
-			mc.PacketChan <- packet
-			time.Sleep(4 * time.Millisecond)
+		case <-mc.genToggleChan:
+			for {
+				select {
+				case <-mc.genToggleChan:
+					<-mc.genToggleChan
+				default:
+					packet := NewPacket()
+					packet.Chan1 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+					packet.Chan2 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+					packet.Chan3 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+					packet.Chan4 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+					packet.Chan5 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+					packet.Chan6 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+					packet.Chan7 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+					packet.Chan8 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+					mc.PacketChan <- packet
+					time.Sleep(4 * time.Millisecond)
+				}
+			}
 		}
 	}
 }

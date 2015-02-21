@@ -134,7 +134,7 @@ func (handle *Handle) testHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	go handle.mc.GenTestPackets(handle.mc.SerialDevice.quitChan)
+	handle.mc.genToggleChan <- true
 }
 
 func wsPacketHandler(w http.ResponseWriter, r *http.Request) {
