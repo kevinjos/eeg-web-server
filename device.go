@@ -36,6 +36,7 @@ func (d *OpenBCI) Close() {
 	if d.conn != nil {
 		d.quitRead <- true
 		d.conn.Close()
+		log.Println("Safely closed the device")
 	}
 	close(d.timeoutChan)
 	close(d.resetChan)

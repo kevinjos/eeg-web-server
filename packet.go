@@ -81,6 +81,7 @@ type Packet struct {
 	Chan1, Chan2, Chan3, Chan4, Chan5, Chan6, Chan7, Chan8 float64
 	AccX, AccY, AccZ                                       int16
 	SignalQuality                                          uint8
+	Synced                                                 bool
 }
 
 func NewPacket() *Packet {
@@ -91,7 +92,7 @@ func NewPacket() *Packet {
 	}
 }
 
-func encodePacket(p *[33]byte, sq byte, gain *[8]float64) *Packet {
+func encodePacket(p *[33]byte, sq byte, gain *[8]float64, synced bool) *Packet {
 	packet := NewPacket()
 	packet.seqNum = p[1]
 	packet.Chan1 = scaleToVolts(convert24bitTo32bit(p[2:5]), gain[0])
@@ -106,6 +107,7 @@ func encodePacket(p *[33]byte, sq byte, gain *[8]float64) *Packet {
 	packet.AccY = convert16bitTo32bit(p[28:30])
 	packet.AccZ = convert16bitTo32bit(p[30:32])
 	packet.SignalQuality = sq
+	packet.Synced = synced
 	return packet
 }
 

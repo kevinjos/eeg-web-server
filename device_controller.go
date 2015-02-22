@@ -1,23 +1,29 @@
 package main
 
 import (
+	"bytes"
 	"log"
 	"math/rand"
+	"os"
+	"strconv"
 	"time"
 )
 
 type MindControl struct {
 	ReadChan         *chan byte
 	PacketChan       chan *Packet
+	savePacketChan   chan *Packet
 	ResetChan        chan bool
 	genToggleChan    chan bool
 	quitGenTest      chan bool
 	quitDecodeStream chan bool
 	quitSendPackets  chan bool
+	quitSave         chan bool
 	shutdown         chan bool
 	SerialDevice     *OpenBCI
 	broadcast        chan *PacketBatcher
 	gain             [8]float64
+	saving           bool
 }
 
 func NewMindControl(broadcast chan *PacketBatcher, shutdown chan bool) *MindControl {
@@ -26,15 +32,18 @@ func NewMindControl(broadcast chan *PacketBatcher, shutdown chan bool) *MindCont
 	return &MindControl{
 		ReadChan:         &serialDevice.readChan,
 		PacketChan:       make(chan *Packet),
+		savePacketChan:   make(chan *Packet),
 		ResetChan:        make(chan bool),
 		quitGenTest:      make(chan bool),
 		quitDecodeStream: make(chan bool),
 		quitSendPackets:  make(chan bool),
+		quitSave:         make(chan bool),
 		genToggleChan:    make(chan bool),
 		SerialDevice:     serialDevice,
 		gain:             [8]float64{24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0},
 		broadcast:        broadcast,
 		shutdown:         shutdown,
+		saving:           false,
 	}
 }
 
@@ -45,10 +54,13 @@ func (mc *MindControl) Open() {
 }
 
 func (mc *MindControl) Close() {
-	mc.quitSendPackets <- true
-	mc.quitDecodeStream <- true
-	mc.quitGenTest <- true
+	if mc.saving == true {
+		mc.quitSave <- true
+	}
 	mc.SerialDevice.Close()
+	mc.quitDecodeStream <- true
+	mc.quitSendPackets <- true
+	mc.quitGenTest <- true
 	close(mc.PacketChan)
 	close(mc.ResetChan)
 	close(mc.genToggleChan)
@@ -60,6 +72,74 @@ func (mc *MindControl) Start() {
 	go mc.DecodeStream()
 	go mc.SerialDevice.command()
 	go mc.GenTestPackets()
+}
+
+func openFile() (*os.File, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	fn := time.Now().String()
+	file, err := os.Create(wd + "/data/" + fn)
+	if err != nil {
+		return nil, err
+	}
+	return file, nil
+}
+
+func packetToCSV(startTime int64, p *Packet) []byte {
+	timeDiff := time.Now().UnixNano() - startTime
+	row := bytes.NewBufferString(strconv.FormatInt(timeDiff, 10) + "," +
+		strconv.FormatBool(p.Synced) + "," +
+		strconv.FormatFloat(p.Chan1, 'G', 8, 64) + "," +
+		strconv.FormatFloat(p.Chan2, 'G', 8, 64) + "," +
+		strconv.FormatFloat(p.Chan3, 'G', 8, 64) + "," +
+		strconv.FormatFloat(p.Chan4, 'G', 8, 64) + "," +
+		strconv.FormatFloat(p.Chan5, 'G', 8, 64) + "," +
+		strconv.FormatFloat(p.Chan6, 'G', 8, 64) + "," +
+		strconv.FormatFloat(p.Chan7, 'G', 8, 64) + "," +
+		strconv.FormatFloat(p.Chan8, 'G', 8, 64) + "," +
+		strconv.FormatInt(int64(p.AccX), 10) + "," +
+		strconv.FormatInt(int64(p.AccY), 10) + "," +
+		strconv.FormatInt(int64(p.AccZ), 10) + "\n")
+	return row.Bytes()
+}
+
+func (mc *MindControl) save() {
+	var file *os.File
+	fileState := 1
+	startTime := time.Now().UnixNano()
+	for {
+		select {
+		case p := <-mc.savePacketChan:
+			switch fileState {
+			case 1:
+				file, _ = openFile()
+				defer func() {
+					file.Close()
+					mc.saving = false
+				}()
+				header := bytes.NewBufferString(`NanoSec,Synced,Chan1,Chan2,Chan3,Chan4,Chan5,Chan6,Chan7,Chan8,AccX,AccY,AccZ
+`)
+				_, err := file.Write(header.Bytes())
+				if err != nil {
+					log.Println(err)
+					return
+				}
+				fileState++
+				fallthrough
+			case 2:
+				row := packetToCSV(startTime, p)
+				_, err := file.Write(row)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+			}
+		case <-mc.quitSave:
+			return
+		}
+	}
 }
 
 //decodeStream implements the openbci packet protocol to
@@ -89,7 +169,7 @@ func (mc *MindControl) DecodeStream() {
 			mc.SerialDevice.resetChan <- resetMonitorChan
 		case <-mc.SerialDevice.timeoutChan:
 			lastPacket := lastPacket
-			mc.PacketChan <- encodePacket(&lastPacket, 0, &mc.gain)
+			mc.PacketChan <- encodePacket(&lastPacket, 0, &mc.gain, false)
 		case b = <-*mc.ReadChan:
 			switch readstate {
 			case 0:
@@ -111,8 +191,8 @@ func (mc *MindControl) DecodeStream() {
 				}
 				for seqDiff > 1 {
 					lastPacket[1]++
-					mc.PacketChan <- encodePacket(&lastPacket, 100-seqDiff, &mc.gain)
 					time.Sleep(4 * time.Millisecond)
+					mc.PacketChan <- encodePacket(&lastPacket, 100-seqDiff, &mc.gain, false)
 					seqDiff--
 				}
 				fallthrough
@@ -127,7 +207,7 @@ func (mc *MindControl) DecodeStream() {
 					thisPacket[32] = b
 					lastPacket = thisPacket
 					if syncPktCtr > syncPktThresh {
-						mc.PacketChan <- encodePacket(&thisPacket, 100, &mc.gain)
+						mc.PacketChan <- encodePacket(&thisPacket, 100, &mc.gain, true)
 					} else {
 						syncPktCtr++
 					}
@@ -180,19 +260,23 @@ func (mc *MindControl) GenTestPackets() {
 		}
 	}
 }
+
 func (mc *MindControl) sendPackets() {
 	last_second := time.Now().UnixNano()
 	second := time.Now().UnixNano()
+	var i int
 
 	pb := NewPacketBatcher()
-	var i int
+
 	for {
 		select {
 		case <-mc.quitSendPackets:
 			return
-		default:
+		case p := <-mc.PacketChan:
 			i++
-			p := <-mc.PacketChan
+			if mc.saving == true {
+				mc.savePacketChan <- p
+			}
 			pb.packets[i%packetBatchSize] = p
 
 			if i%packetBatchSize == 0 {

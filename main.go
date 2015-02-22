@@ -31,6 +31,7 @@ func main() {
 	http.HandleFunc("/start", handle.startHandler)
 	http.HandleFunc("/stop", handle.stopHandler)
 	http.HandleFunc("/close", handle.closeHandler)
+	http.HandleFunc("/save", handle.saveHandler)
 	http.HandleFunc("/test", handle.testHandler)
 	http.HandleFunc("/js/", handle.jsHandler)
 	go h.Run()

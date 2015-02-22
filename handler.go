@@ -120,6 +120,19 @@ func (handle *Handle) stopHandler(w http.ResponseWriter, r *http.Request) {
 	handle.mc.SerialDevice.writeChan <- "s"
 }
 
+func (handle *Handle) saveHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	handle.mc.saving = handle.mc.saving != true
+	if handle.mc.saving == true {
+		go handle.mc.save()
+	} else {
+		handle.mc.quitSave <- true
+	}
+}
+
 func (handle *Handle) resetHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", 405)

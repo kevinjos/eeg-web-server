@@ -10,7 +10,7 @@ type testparsecommandpair struct {
 }
 
 var testsparsecommand = []testparsecommandpair{
-	{"/x/1/true", channelOn["1"]},
+	{"/x/1/true", "!"},
 	{"/x/1/false", "1"},
 	{"/x/2/false", "2"},
 	{"/x/2/x2000000X", "x2000000X"},
