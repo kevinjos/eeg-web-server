@@ -56,6 +56,10 @@ func (MockConn) Write(b []byte) (int, error) {
 	}
 }
 
+func (MockConn) Flush() error {
+	return nil
+}
+
 func TestNewOpenBCI(t *testing.T) {
 	openbci := NewOpenBCI()
 	go func() {

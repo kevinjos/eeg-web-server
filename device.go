@@ -25,6 +25,13 @@ import (
 	"time"
 )
 
+type ReadWriteFlushCloser interface {
+	Read([]byte) (int, error)
+	Write([]byte) (int, error)
+	Close() error
+	Flush() error
+}
+
 type OpenBCI struct {
 	writeChan     chan string
 	readChan      chan byte
@@ -33,7 +40,7 @@ type OpenBCI struct {
 	pauseReadChan chan chan bool
 	quitCommand   chan bool
 	quitRead      chan bool
-	conn          io.ReadWriteCloser
+	conn          ReadWriteFlushCloser
 }
 
 func NewOpenBCI() *OpenBCI {
@@ -53,6 +60,7 @@ func (d *OpenBCI) Close() {
 	d.quitCommand <- true
 	if d.conn != nil {
 		d.quitRead <- true
+		d.conn.Flush()
 		d.conn.Close()
 		log.Println("Safely closed the device")
 	}
@@ -77,9 +85,9 @@ func (d *OpenBCI) command() {
 }
 
 func (d *OpenBCI) read() {
-  bufSize := 8
+  bufSize := 1
 	buf := make([]byte, bufSize)
-  readChan := make(chan byte, bufSize)
+  readChan := make(chan byte)
 	for {
 		select {
 		case resumeReadChan := <-d.pauseReadChan:
@@ -102,6 +110,7 @@ func (d *OpenBCI) read() {
       }
       select {
         case <-time.After(readTimeout):
+					log.Println("ReadTimeout")
           d.timeoutChan <- true
         case b := <-readChan:
           d.readChan <- b
@@ -140,6 +149,8 @@ func (d *OpenBCI) reset(resumeChan chan bool) {
 		init_array [3]byte
 		index      int
 	)
+
+	d.conn.Flush()
 
 	d.writeChan <- "s"
 	time.Sleep(400 * time.Millisecond)
