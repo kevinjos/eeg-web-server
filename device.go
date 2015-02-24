@@ -19,7 +19,7 @@
 package main
 
 import (
-	"github.com/tarm/goserial"
+	"github.com/pkg/term"
 	"io"
 	"log"
 	"time"
@@ -77,7 +77,9 @@ func (d *OpenBCI) command() {
 }
 
 func (d *OpenBCI) read() {
-	buf := make([]byte, 8)
+  bufSize := 8
+	buf := make([]byte, bufSize)
+  readChan := make(chan byte, bufSize)
 	for {
 		select {
 		case resumeReadChan := <-d.pauseReadChan:
@@ -85,19 +87,27 @@ func (d *OpenBCI) read() {
 		case <-d.quitRead:
 			return
 		default:
-			if d.conn != nil {
-				n, err := d.conn.Read(buf)
-				if err == io.EOF {
-					d.timeoutChan <- true
-				} else if err != nil {
-					log.Fatal("Error reading [", n, "] bytes from serial device: [", err, "]")
-				}
-				for i := 0; i < n; i++ {
-					d.readChan <- buf[i]
-				}
-			}
-		}
-	}
+      if d.conn != nil {
+        go func() { 
+            n, err := d.conn.Read(buf)
+            if err == io.EOF {
+              d.timeoutChan <- true
+            } else if err != nil {
+              log.Fatal("Error reading from serial device: [", err, "]")
+            }
+            for i := 0; i < n; i++ {
+              readChan <- buf[i]
+            }
+        }()
+      }
+      select {
+        case <-time.After(readTimeout):
+          d.timeoutChan <- true
+        case b := <-readChan:
+          d.readChan <- b
+      }
+    }
+  }
 }
 
 func (d *OpenBCI) write(s string) {
@@ -112,10 +122,11 @@ func (d *OpenBCI) write(s string) {
 }
 
 func (d *OpenBCI) open() {
-	config := &serial.Config{Name: location, Baud: baud, ReadTimeout: readTimeout}
-	conn, err := serial.OpenPort(config)
+	//config := &serial.Config{Name: location, Baud: baud, ReadTimeout: readTimeout}
+	//conn, err := serial.OpenPort(config)
+  conn, err := term.Open(location, term.Speed(baud))
 	if err != nil {
-		log.Fatal("Error conneting to serial device: [", err, "]")
+		log.Fatal("Error conneting to serial device at [", location, "]: [", err, "]")
 	}
 	d.conn = conn
 }

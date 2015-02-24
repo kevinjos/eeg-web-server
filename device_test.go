@@ -142,19 +142,6 @@ func TestRead(t *testing.T) {
 	d.quitRead <- true
 }
 
-func TestOpen(t *testing.T) {
-	d := NewOpenBCI()
-	location = "/dev/ttyS0"
-	d.open()
-	if d.conn == nil {
-		t.Error(
-			"For open connection",
-			"Expected non nil conn",
-			"Got", d.conn,
-		)
-	}
-}
-
 func TestReset(t *testing.T) {
 	d := NewOpenBCI()
 	d.conn = NewMockConn()
