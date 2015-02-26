@@ -46,7 +46,7 @@
 			
 			void main() {
 				gl_FragColor = vec4(1.0 - worldPos.y, worldPos.y, 0.0, 1.0);
-				gl_FragColor.xy = normalize(gl_FragColor.xy);
+				gl_FragColor.xy /= max(gl_FragColor.x, gl_FragColor.y);
 			}
 		</script>
 		
