@@ -69,6 +69,28 @@ func (handle *Handle) rootHandler(w http.ResponseWriter, r *http.Request) {
 	rootTempl.Execute(w, r.Host)
 }
 
+func (handle *Handle) cssHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	p := strings.Split(r.URL.Path, "/")
+	f := p[len(p)-1]
+	http.ServeFile(w, r, "static/"+f)
+}
+
+func (handle *Handle) bootstrapHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	p := strings.Split(r.URL.Path, "/")
+	f := p[len(p)-1]
+	http.ServeFile(w, r, "bootstrap/"+"css/"+f)
+	http.ServeFile(w, r, "bootstrap/"+"fonts/"+f)
+	http.ServeFile(w, r, "bootstrap/"+"js"+f)
+}
+
 func (handle *Handle) commandHandler(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.URL.Path, "/x/") == false {
 		http.Error(w, "Not found", 404)

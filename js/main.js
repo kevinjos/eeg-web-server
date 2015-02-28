@@ -3,22 +3,6 @@ var gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
 gl = WebGLDebugUtils.makeDebugContext(gl);
 var vertArray;
 
-var transpose = function(a) {
-	var t = [];
-	for (var i = 0; i < 16; ++i) {
-		t[i] = a[(4*i + Math.floor(i/4)) % 16];
-	}
-	return t;
-};
-
-var toFloat32Array = function(a) {
-	var f32a = new Float32Array(a.length);
-	a.forEach(function(f, i) {
-		f32a[i] = f;
-	});
-	return f32a;
-}
-
 var oldMousePos, mouseDelta = vec2.create();
 
 var cameraPhi = Math.PI/4;
@@ -38,7 +22,6 @@ var scope = {
 		glMatrix.setMatrixArrayType(Float32Array);
 		
 		canvas.onmousemove = scope.onMouseMove;
-		requestAnimationFrame(scope.onStep);
 		
 		gl.enable(gl.DEPTH_TEST);
 		
@@ -59,7 +42,7 @@ var scope = {
 		gl.useProgram(program);
 		var modelMat = mat4.create();
 		mat4.translate(modelMat, modelMat, vec3.fromValues(-0.5, 0, -0.5));
-		mat4.scale(modelMat, modelMat, vec3.fromValues(1, 1/3, 1));
+		mat4.scale(modelMat, modelMat, vec3.fromValues(1, 1/4, 1));
 		var viewMat = mat4.create()
 		mat4.translate(viewMat, viewMat, vec3.fromValues(0, 0, -3));
 		mat4.rotateX(viewMat, viewMat, Math.PI/2);
@@ -83,15 +66,9 @@ var scope = {
 		
 		gl.enableVertexAttribArray(posIndex);
 		
+		scope.onStep();
 		//var vbo = scope.makeGraph(data);
 		//gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-		
-		gl.clearColor(0, 0, 1, 1);
-		
-		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-		gl.drawArrays(gl.TRIANGLES, 0, geometry.length/3);
-		//gl.finish();
-		console.log('done');
 		
 	},
 	
@@ -166,7 +143,7 @@ var scope = {
 	},
 	
 	render: function() {
-		gl.clearColor(0, 0, 1, 1);
+		gl.clearColor(0, 0, 0, 1);
 		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 		gl.drawArrays(gl.TRIANGLES, 0, geometry.length/3);
 	},
@@ -177,7 +154,7 @@ window.bciVis = scope;
 var zeroData = [];
 for (var i = 0; i < 20; ++i) {
 	zeroData.push([]);
-	for (var j = 0; j < 125; ++j) {
+	for (var j = 0; j < 25; ++j) {
 		zeroData[i].push(0);
 	}
 }
