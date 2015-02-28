@@ -56,10 +56,10 @@ func NewMindControl(broadcast chan *PacketBatcher, shutdown chan bool) *MindCont
 		quitSendPackets:  make(chan bool),
 		quitSave:         make(chan bool),
 		genToggleChan:    make(chan bool),
+		shutdown:    shutdown,
 		SerialDevice:     serialDevice,
 		gain:             [8]float64{24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0},
 		broadcast:        broadcast,
-		shutdown:         shutdown,
 		saving:           false,
 	}
 }
@@ -82,6 +82,7 @@ func (mc *MindControl) Close() {
 	close(mc.ResetChan)
 	close(mc.genToggleChan)
 	mc.shutdown <- true
+	log.Println("Sent shutdown msg")
 }
 
 func (mc *MindControl) Start() {

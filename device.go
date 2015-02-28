@@ -20,7 +20,6 @@ package main
 
 import (
 	"github.com/pkg/term"
-	"io"
 	"log"
 	"time"
 )
@@ -84,10 +83,20 @@ func (d *OpenBCI) command() {
 	}
 }
 
+type readMsg struct {
+	n	int
+	err error
+}
+
+func toStruct(n int, err error) readMsg {
+	return readMsg{n: n,
+								 err: err,}
+}
+
 func (d *OpenBCI) read() {
-  bufSize := 1
-	buf := make([]byte, bufSize)
-  readChan := make(chan byte)
+	out := make(chan readMsg, 1)
+	timeout := make(chan bool, 1)
+	defer close(out)
 	for {
 		select {
 		case resumeReadChan := <-d.pauseReadChan:
@@ -95,25 +104,22 @@ func (d *OpenBCI) read() {
 		case <-d.quitRead:
 			return
 		default:
-      if d.conn != nil {
-        go func() { 
-            n, err := d.conn.Read(buf)
-            if err == io.EOF {
-              d.timeoutChan <- true
-            } else if err != nil {
-              log.Fatal("Error reading from serial device: [", err, "]")
-            }
-            for i := 0; i < n; i++ {
-              readChan <- buf[i]
-            }
-        }()
-      }
+			buf := make([]byte, 1)
+			go func() { 
+					select {
+						case out <- toStruct(d.conn.Read(buf)):
+						case to := <-timeout:
+							log.Println("ReadTimeout")
+							d.timeoutChan <- to
+					}
+			}()
       select {
         case <-time.After(readTimeout):
-					log.Println("ReadTimeout")
-          d.timeoutChan <- true
-        case b := <-readChan:
-          d.readChan <- b
+					timeout <- true
+				case msg := <-out:
+					for i := 0; i < msg.n; i++ {
+						d.readChan <- buf[i]
+					}
       }
     }
   }
@@ -133,7 +139,7 @@ func (d *OpenBCI) write(s string) {
 func (d *OpenBCI) open() {
 	//config := &serial.Config{Name: location, Baud: baud, ReadTimeout: readTimeout}
 	//conn, err := serial.OpenPort(config)
-  conn, err := term.Open(location, term.Speed(baud))
+  conn, err := term.Open(location, term.Speed(baud), term.CBreakMode)
 	if err != nil {
 		log.Fatal("Error conneting to serial device at [", location, "]: [", err, "]")
 	}
@@ -158,7 +164,7 @@ func (d *OpenBCI) reset(resumeChan chan bool) {
 	defer close(resumeRead)
 	d.pauseReadChan <- resumeRead
 	d.writeChan <- "v"
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
 	resumeRead <- true
 
 	init_array = [3]byte{'\x24', '\x24', '\x24'}
@@ -169,7 +175,8 @@ func (d *OpenBCI) reset(resumeChan chan bool) {
 			scrolling[index%3] = b
 			index++
 			if scrolling == init_array {
-				d.writeChan <- "b"
+				//d.writeChan <- "b"
+				log.Println("Restart Successful")
 				resumeChan <- true
 				return
 			}

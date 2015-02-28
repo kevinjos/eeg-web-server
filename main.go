@@ -38,9 +38,12 @@ var location string = "/dev/ttyUSB0"
 
 func main() {
 	h := NewHub()
-	shutdown := make(chan bool)
+	shutdown := make(chan bool, 1)
+	defer func() {
+		close(shutdown)
+		h.Close()
+	}()
 	mc := NewMindControl(h.broadcast, shutdown)
-	defer h.Close()
 	handle := NewHandle(mc)
 	http.HandleFunc("/ws", h.wsPacketHandler)
 	http.HandleFunc("/", handle.rootHandler)
@@ -58,11 +61,14 @@ func main() {
 
 	go h.Run()
 	go mc.Start()
-	go http.ListenAndServe(*addr, nil)
-	for {
-		select {
-		case <-shutdown:
-			return
+	run := func(shutdown <-chan bool) {
+		go http.ListenAndServe(*addr, nil)
+		for {
+			select {
+				case <-shutdown:
+					return
+			}
 		}
 	}
+	run(shutdown)
 }
