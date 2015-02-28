@@ -1,11 +1,36 @@
+/*  OpenBCI golang server allows users to control, visualize and store data
+    collected from the OpenBCI microcontroller.
+    Copyright (C) 2015  Kevin Schiesser
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as
+    published by the Free Software Foundation, either version 3 of the
+    License, or (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
 package main
 
 import (
-	"github.com/tarm/goserial"
+	"github.com/pkg/term"
 	"io"
 	"log"
 	"time"
 )
+
+type ReadWriteFlushCloser interface {
+	Read([]byte) (int, error)
+	Write([]byte) (int, error)
+	Close() error
+	Flush() error
+}
 
 type OpenBCI struct {
 	writeChan     chan string
@@ -15,7 +40,7 @@ type OpenBCI struct {
 	pauseReadChan chan chan bool
 	quitCommand   chan bool
 	quitRead      chan bool
-	conn          io.ReadWriteCloser
+	conn          ReadWriteFlushCloser
 }
 
 func NewOpenBCI() *OpenBCI {
@@ -35,6 +60,7 @@ func (d *OpenBCI) Close() {
 	d.quitCommand <- true
 	if d.conn != nil {
 		d.quitRead <- true
+		d.conn.Flush()
 		d.conn.Close()
 		log.Println("Safely closed the device")
 	}
@@ -50,8 +76,8 @@ func (d *OpenBCI) command() {
 		select {
 		case s := <-d.writeChan:
 			d.write(s)
-		case resumePacketStream := <-d.resetChan:
-			go d.reset(resumePacketStream)
+		case resumePacketChan := <-d.resetChan:
+			go d.reset(resumePacketChan)
 		case <-d.quitCommand:
 			return
 		}
@@ -59,7 +85,9 @@ func (d *OpenBCI) command() {
 }
 
 func (d *OpenBCI) read() {
-	buf := make([]byte, 8)
+  bufSize := 1
+	buf := make([]byte, bufSize)
+  readChan := make(chan byte)
 	for {
 		select {
 		case resumeReadChan := <-d.pauseReadChan:
@@ -67,19 +95,28 @@ func (d *OpenBCI) read() {
 		case <-d.quitRead:
 			return
 		default:
-			if d.conn != nil {
-				n, err := d.conn.Read(buf)
-				if err == io.EOF {
-					d.timeoutChan <- true
-				} else if err != nil {
-					log.Fatal("Error reading [", n, "] bytes from serial device: [", err, "]")
-				}
-				for i := 0; i < n; i++ {
-					d.readChan <- buf[i]
-				}
-			}
-		}
-	}
+      if d.conn != nil {
+        go func() { 
+            n, err := d.conn.Read(buf)
+            if err == io.EOF {
+              d.timeoutChan <- true
+            } else if err != nil {
+              log.Fatal("Error reading from serial device: [", err, "]")
+            }
+            for i := 0; i < n; i++ {
+              readChan <- buf[i]
+            }
+        }()
+      }
+      select {
+        case <-time.After(readTimeout):
+					log.Println("ReadTimeout")
+          d.timeoutChan <- true
+        case b := <-readChan:
+          d.readChan <- b
+      }
+    }
+  }
 }
 
 func (d *OpenBCI) write(s string) {
@@ -94,10 +131,11 @@ func (d *OpenBCI) write(s string) {
 }
 
 func (d *OpenBCI) open() {
-	config := &serial.Config{Name: location, Baud: baud, ReadTimeout: readTimeout}
-	conn, err := serial.OpenPort(config)
+	//config := &serial.Config{Name: location, Baud: baud, ReadTimeout: readTimeout}
+	//conn, err := serial.OpenPort(config)
+  conn, err := term.Open(location, term.Speed(baud))
 	if err != nil {
-		log.Fatal("Error conneting to serial device: [", err, "]")
+		log.Fatal("Error conneting to serial device at [", location, "]: [", err, "]")
 	}
 	d.conn = conn
 }
@@ -111,6 +149,8 @@ func (d *OpenBCI) reset(resumeChan chan bool) {
 		init_array [3]byte
 		index      int
 	)
+
+	d.conn.Flush()
 
 	d.writeChan <- "s"
 	time.Sleep(400 * time.Millisecond)

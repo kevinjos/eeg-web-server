@@ -1,18 +1,18 @@
 var makeCube = function(size) {
-	var l = size = 2;
-/*
+	var l = size / 2;
+	/*
 	    y
 	    |
-	    e-----f
-	   /|    /|
-	  h-----g |
-	  | a---|-b---x
-	  |/    |/
-	  d-----c
+	    e------f
+	   /|     /|
+	  h------g |
+	  | a----|-b---x
+	  |/     |/
+	  d------c
 	 /
 	z
 
-*/
+	*/
 	
 	var a = [-l, -l, -l];
 	var b = [+l, -l, -l];
