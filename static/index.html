@@ -1,148 +1,232 @@
 <!DOCTYPE html>
 <html>
-	<head>
-		<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+  <head>
+    <link rel="stylesheet" href="../bootstrap/css/bootstrap.css">
+    <link rel="stylesheet" href="/static/mainc.css">
+    <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+    <script type="text/javascript">
+      if (window["WebSocket"]) {
+        conn = new WebSocket("ws://{{$}}/ws");
+        conn.onclose = function(evt) {
+          console.log("closing");
+        }
+        conn.onmessage = function(evt) {
+          data = JSON.parse(evt.data);
+          console.log("received data:", data);
+          var newDatum = data.FFTs.FFTChan1.slice(0, 125);
+          bciVis.updateData(newDatum);
+        }
+        conn.onopen = function(evt) {
+          console.log("opening");
+        }
+      } else {
+        appendLog($("<div><b>Your browser does not support WebSockets.</b></div>"));
+      }
+      $(window).on('beforeunload', function() {
+        console.log("Closing websocket");
+        conn.close();
+      });
+    </script>
+  </head>
 
-		<script type="text/javascript">
-			if (window["WebSocket"]) {
-				conn = new WebSocket("ws://{{$}}/ws");
-				conn.onclose = function(evt) {
-					console.log("closing");
-				}
-				conn.onmessage = function(evt) {
-					data = JSON.parse(evt.data);
-					console.log("received data:", data);
-					var newDatum = data.FFTs.FFTChan1.slice(0, 125);
-					bciVis.updateData(newDatum);
-				}
-				conn.onopen = function(evt) {
-					console.log("opening");
-				}
-			} else {
-				appendLog($("<div><b>Your browser does not support WebSockets.</b></div>"));
-			}
-			$(window).on('beforeunload', function() {
-				console.log("Closing websocket");
-				conn.close();
-			});
-		</script>
+  <body>
+    <div class="nav">
+      <div class="container">
+        <ul class="pull-left">
+          <li><a href="#">Open-BCI go server</a></li>
+          <li><a href="https://github.com/kevinjos/openbci-golang-server">Source</a></li>
+        </ul>
+        <ul class="pull-right">
+          <li><a href="#">Sign Up</a></li>
+          <li><a href="#">Log In</a></li>
+          <li><a href="#">Help</a></li>
+        </ul>
+      </div>
+    </div>
 
-		<script id="vertShader" type="x-shader/x-vertex">
-			uniform mat4 modelMat;
-			uniform mat4 viewMat;
-			uniform mat4 projMat;
-			
-			attribute vec3 pos;
-			
-			varying vec4 worldPos;
-			void main() {
-				worldPos = modelMat * vec4(pos, 1);
-				gl_Position = projMat * viewMat * worldPos;
-			}
-		</script>
-		
-		<script id="fragShader" type="x-shader/x-fragment">
-			varying mediump vec4 worldPos;
-			
-			void main() {
-				gl_FragColor = vec4(1.0 - worldPos.y, worldPos.y, 0.0, 1.0);
-				gl_FragColor.xy /= max(gl_FragColor.x, gl_FragColor.y);
-			}
-		</script>
-		
-	</head>
+    <div class="jumbotron">
+      <div class="container">
+        <h1>Visualize your brain waves.</h1>
+        <p>Graph your brain waves using the Open-BCI Go Server.</p>
+        <a href="#">Get started</a>
+        <div class="row">
+          <div class="col-md-4">
+            <div class="canvas">
+              <script src="/js/handler.js"></script>
+            
+              <canvas id="canvas" width="400" height="300"></canvas>
+              
+              <script id="vertShader" type="x-shader/x-vertex">
+                uniform mat4 modelMat;
+                uniform mat4 viewMat;
+                uniform mat4 projMat;
+                
+                attribute vec3 pos;
+                
+                varying vec4 worldPos;
+                void main() {
+                  worldPos = modelMat * vec4(pos, 1);
+                  gl_Position = projMat * viewMat * worldPos;
+                }
+                
+              </script>
+              
+              <script id="fragShader" type="x-shader/x-fragment">
+                
+                varying mediump vec4 worldPos;
+                
+                void main() {
+                  gl_FragColor = vec4(1.0 - worldPos.y, worldPos.y, 0.0, 1.0);
+                  gl_FragColor.xy = normalize(gl_FragColor.xy);
+                  
+                }
+              </script>
+              
+              <script src="http://localhost:8888/js/webgl-debug.js"></script>
+              
+              <script src="/js/gl-matrix-min.js"></script>
+              <script src="/js/geometry.js"></script>
+              <script src="/js/main.js"></script>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div id="chantoggle" align="left" class="pull-left"><br>
+              <input type="checkbox" value="1" href="http://{{$}}/x/" checked>Channel 1<br> 
+              <input type="checkbox" value="2" href="http://{{$}}/x/" checked>Channel 2<br>
+              <input type="checkbox" value="3" href="http://{{$}}/x/" checked>Channel 3<br>
+              <input type="checkbox" value="4" href="http://{{$}}/x/" checked>Channel 4<br>
+              <input type="checkbox" value="5" href="http://{{$}}/x/" checked>Channel 5<br>
+              <input type="checkbox" value="6" href="http://{{$}}/x/" checked>Channel 6<br>
+              <input type="checkbox" value="7" href="http://{{$}}/x/" checked>Channel 7<br>
+              <input type="checkbox" value="8" href="http://{{$}}/x/" checked>Channel 8<br>
+            <br>
+            </div>
+          </div>
 
-	<body>
-		<A href="https://github.com/kevinjos/openbci-golang-server">Source</A><br>
+          <div class="col-md-4">
+            <div id="streamcommands" align="center">
+              <input type="button" value="open" href="http://{{$}}/open">
+              <input type="button" value="reset" href="http://{{$}}/reset">
+              <input type="button" value="start" href="http://{{$}}/start">
+              <input type="button" value="stop" href="http://{{$}}/stop">
+              <input type="button" value="close" href="http://{{$}}/close">
+              <input type="button" value="gentest" href="http://{{$}}/test">
+              <input type="button" value="save" href="http://{{$}}/save">
+            </div>
 
-		<canvas id="canvas" width="800" height="600"> </canvas>
-		
-		<div id="streamcommands" align="center">
-			<input type="button" value="open" href="http://{{$}}/open">
-			<input type="button" value="reset" href="http://{{$}}/reset">
-			<input type="button" value="start" href="http://{{$}}/start">
-			<input type="button" value="stop" href="http://{{$}}/stop">
-			<input type="button" value="close" href="http://{{$}}/close">
-			<input type="button" value="gentest" href="http://{{$}}/test">
-			<input type="button" value="save" href="http://{{$}}/save">
-		</div>
+            <div id="complexcommands" align="left">
+              <form id="longcommand">
+                <input type="button" id="update" value="update" href="http://{{$}}/x/">
 
-		<div id="chantoggle" align="left"><br>
-			<input type="checkbox" value="1" href="http://{{$}}/x/" checked>Channel 1<br> 
-			<input type="checkbox" value="2" href="http://{{$}}/x/" checked>Channel 2<br>
-			<input type="checkbox" value="3" href="http://{{$}}/x/" checked>Channel 3<br>
-			<input type="checkbox" value="4" href="http://{{$}}/x/" checked>Channel 4<br>
-			<input type="checkbox" value="5" href="http://{{$}}/x/" checked>Channel 5<br>
-			<input type="checkbox" value="6" href="http://{{$}}/x/" checked>Channel 6<br>
-			<input type="checkbox" value="7" href="http://{{$}}/x/" checked>Channel 7<br>
-			<input type="checkbox" value="8" href="http://{{$}}/x/" checked>Channel 8<br>
-		<br>
-		</div>
+                <select id="channel">
+                  <option value="0">All Channels</option>
+                  <option value="1">Channel 1</option>
+                  <option value="2">Channel 2</option>
+                  <option value="3">Channel 3</option>
+                  <option value="4">Channel 4</option>
+                  <option value="5">Channel 5</option>
+                  <option value="6">Channel 6</option>
+                  <option value="7">Channel 7</option>
+                  <option value="8">Channel 8</option>
+                </select>
 
-		<div id="complexcommands" align="left">
-			<form id="longcommand">
-				<input type="button" id="update" value="update" href="http://{{$}}/x/">
+                <select id="power">
+                  <option value="0">Power On</option>
+                  <option value="1">Power Off</option>
+                </select>
 
-				<select id="channel">
-					<option value="0">All Channels</option>
-					<option value="1">Channel 1</option>
-					<option value="2">Channel 2</option>
-					<option value="3">Channel 3</option>
-					<option value="4">Channel 4</option>
-					<option value="5">Channel 5</option>
-					<option value="6">Channel 6</option>
-					<option value="7">Channel 7</option>
-					<option value="8">Channel 8</option>
-				</select>
+                <select id="gain">
+                  <option value="6">24x gain</option>
+                  <option value="5">12x gain</option>
+                  <option value="4">8x gain</option>
+                  <option value="3">6x gain</option>
+                  <option value="2">4x gain</option>
+                  <option value="1">2x gain</option>
+                  <option value="0">1x gain</option>
+                </select>
 
-				<select id="power">
-					<option value="0">Power On</option>
-					<option value="1">Power Off</option>
-				</select>
+                <select id="input">
+                  <option value="0">Normal</option>
+                  <option value="1">Shorted</option>
+                  <option value="2">Bias meas</option>
+                  <option value="3">MVDD</option>
+                  <option value="4">Temp</option>
+                  <option value="5">Test signal</option>
+                  <option value="6">Bias DRP</option>
+                  <option value="7">Bias DRN</option>
+                </select>
 
-				<select id="gain">
-					<option value="6">24x gain</option>
-					<option value="5">12x gain</option>
-					<option value="4">8x gain</option>
-					<option value="3">6x gain</option>
-					<option value="2">4x gain</option>
-					<option value="1">2x gain</option>
-					<option value="0">1x gain</option>
-				</select>
+                <select id="bias">
+                  <option value="1">Include in BIAS</option>
+                  <option value="0">Exclude from BIAS</option>
+                </select>
 
-				<select id="input">
-					<option value="0">Normal</option>
-					<option value="1">Shorted</option>
-					<option value="2">Bias meas</option>
-					<option value="3">MVDD</option>
-					<option value="4">Temp</option>
-					<option value="5">Test signal</option>
-					<option value="6">Bias DRP</option>
-					<option value="7">Bias DRN</option>
-				</select>
+                <select id="srb2">
+                  <option value="1">Connect SRB2</option>
+                  <option value="0">Disconn SRB2</option>
+                </select>
+                
+                <select id="srb1">
+                  <option value="0">Disconn SRB1</option>
+                  <option value="1">Connect SRB1</option>
+                </select>
+              </form>
+            </div> 
+          </div>
+        </div>
+      </div>
+    </div> 
 
-				<select id="bias">
-					<option value="1">Include in BIAS</option>
-					<option value="0">Exclude from BIAS</option>
-				</select>
-
-				<select id="srb2">
-					<option value="1">Connect SRB2</option>
-					<option value="0">Disconn SRB2</option>
-				</select>
-
-				<select id="srb1">
-					<option value="0">Disconn SRB1</option>
-					<option value="1">Connect SRB1</option>
-				</select>
-			</form>
-		</div>
-
-		<script src="http://localhost:8888/js/webgl-debug.js"></script>
-		<script src="/js/gl-matrix-min.js"></script>
-		<script src="/js/geometry.js"></script>
-		<script src="/js/main.js"></script>
-		<script src="/js/handler.js"></script>
-		
-	</body>
+    <div class="graph-guides">
+      <div class="container">
+        <h2>Visualize your brain waves.</h2>
+        <p>Graph your brain waves using the Open-BCI Go Server.</p>
+        <div class='row'>
+          <div class="col-md-4">
+            <div class="thumbnail">
+              <img src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg">
+            </div>
+            <div class="thumbnail">
+              <img src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg">
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="thumbnail">
+              <img src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg">
+            </div>
+            <div class="thumbnail">
+              <img src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg">
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="thumbnail">
+              <img src="http://simetronsac.com/images/dx/eeg-24/eeg4.gif">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="learn-more">
+      <div class="container">
+        <div class="row">
+          <div class="col-md-4">
+            <h3>Participate</h3>
+            <p>Join EEG studies.</p>
+            <p><a href="#">Learn more about current research</a></p>
+          </div>
+          <div class="col-md-4">
+            <h3>Record</h3>
+            <p>Generate brain reports.</p>
+            <p><a href="#">Learn more about recording</a></p>
+          </div>
+          <div class="col-md-4">
+            <h3>Privacy and Safety</h3>
+            <p>We don't collect and save your data without your permission.'</p>
+            <p><a href="#">Learn about privacy at with Open-BCI go server</a></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
 </html>
