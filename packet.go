@@ -51,7 +51,6 @@ func (pb *PacketBatcher) dft(input [packetBatchSize]float64) []float64 {
 	forward.Execute()
 	data_out := make([]float64, packetBatchSize)
 	for idx, val := range data.Elems {
-		// data_out[idx] = real(val)
 		data_out[idx] = cmplx.Abs(val)
 	}
 	return data_out

@@ -19,10 +19,10 @@
 package main
 
 import (
+	"io"
+	"math/rand"
 	"testing"
 	"time"
-	"math/rand"
-	"io"
 )
 
 type MockConn struct {
@@ -37,19 +37,18 @@ func (MockConn) Close() error {
 }
 
 func (MockConn) Read(b []byte) (int, error) {
-	a := []byte{1, 1, 1, 1, 1, 1, 1, 1}
-	copy(b, a)
 	i := rand.Int31()
-	if i > (1<<30) {
+	if i > (1 << 29) {
 		return len(b), nil
 	} else {
-		return len(b), io.EOF
+		time.Sleep(readTimeout)
+		return 0, io.EOF
 	}
 }
 
 func (MockConn) Write(b []byte) (int, error) {
 	i := rand.Int31()
-	if i > (1<<30) {
+	if i > (1 << 30) {
 		return len(b), nil
 	} else {
 		return len(b), io.ErrShortWrite
@@ -105,7 +104,7 @@ func TestCommand(t *testing.T) {
 	d.readChan = mockReadChan
 	go d.command()
 	for n := 0; n < 10; n++ {
-		d.writeChan <- "abc"
+		d.writeChan <- "c"
 	}
 	d.resetChan <- mockResumeChan
 	d.quitCommand <- true
@@ -114,33 +113,20 @@ func TestCommand(t *testing.T) {
 func TestRead(t *testing.T) {
 	d := NewOpenBCI()
 	d.conn = NewMockConn()
-	go d.read()
+	buf := make([]byte, readBufferSize)
+	go d.read(buf)
 	go func() {
 		for {
 			select {
-			case b := <-d.readChan:
-				if b != 1 {
-					t.Error(
-						"For device read",
-						"Expected 1",
-						"Got", b,
-					)
-				}
-			case m := <-d.timeoutChan:
-				if m != true {
-					t.Error(
-						"For device readtimeout",
-						"Expected true",
-						"Got", m,
-					)
-				}
+			case <-d.readChan:
+			case <-d.timeoutChan:
 			}
 		}
 	}()
 	mockResumeChan := make(chan bool)
-	time.Sleep(100 * time.Millisecond)
-	go func() { 
-		mockResumeChan <- true 
+	go func() {
+		time.Sleep(readTimeout)
+		mockResumeChan <- true
 	}()
 	d.pauseReadChan <- mockResumeChan
 	d.quitRead <- true

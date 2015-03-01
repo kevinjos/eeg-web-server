@@ -103,10 +103,9 @@ func (handle *Handle) bootstrapHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := strings.Split(r.URL.Path, "/")
+	t := p[len(p)-2]
 	f := p[len(p)-1]
-	http.ServeFile(w, r, "bootstrap/"+"css/"+f)
-	http.ServeFile(w, r, "bootstrap/"+"fonts/"+f)
-	http.ServeFile(w, r, "bootstrap/"+"js"+f)
+	http.ServeFile(w, r, "bootstrap/"+t+"/"+f)
 }
 
 func (handle *Handle) commandHandler(w http.ResponseWriter, r *http.Request) {

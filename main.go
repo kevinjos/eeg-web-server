@@ -65,8 +65,8 @@ func main() {
 		go http.ListenAndServe(*addr, nil)
 		for {
 			select {
-				case <-shutdown:
-					return
+			case <-shutdown:
+				return
 			}
 		}
 	}

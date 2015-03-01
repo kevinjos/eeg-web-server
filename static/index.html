@@ -27,6 +27,31 @@
         conn.close();
       });
     </script>
+		<script id="vertShader" type="x-shader/x-vertex">
+			uniform mat4 modelMat;
+			uniform mat4 viewMat;
+			uniform mat4 projMat;
+
+			attribute vec3 pos;
+
+			varying vec4 worldPos;
+			void main() {
+				worldPos = modelMat * vec4(pos, 1);
+				gl_Position = projMat * viewMat * worldPos;
+			}
+
+		</script>
+
+		<script id="fragShader" type="x-shader/x-fragment">
+
+			varying mediump vec4 worldPos;
+
+			void main() {
+				gl_FragColor = vec4(1.0 - worldPos.y, worldPos.y, 0.0, 1.0);
+				gl_FragColor.xy = normalize(gl_FragColor.xy);
+
+			}
+		</script>
   </head>
 
   <body>
@@ -52,41 +77,7 @@
         <div class="row">
           <div class="col-md-4">
             <div class="canvas">
-              <script src="/js/handler.js"></script>
-            
               <canvas id="canvas" width="400" height="300"></canvas>
-              
-              <script id="vertShader" type="x-shader/x-vertex">
-                uniform mat4 modelMat;
-                uniform mat4 viewMat;
-                uniform mat4 projMat;
-                
-                attribute vec3 pos;
-                
-                varying vec4 worldPos;
-                void main() {
-                  worldPos = modelMat * vec4(pos, 1);
-                  gl_Position = projMat * viewMat * worldPos;
-                }
-                
-              </script>
-              
-              <script id="fragShader" type="x-shader/x-fragment">
-                
-                varying mediump vec4 worldPos;
-                
-                void main() {
-                  gl_FragColor = vec4(1.0 - worldPos.y, worldPos.y, 0.0, 1.0);
-                  gl_FragColor.xy = normalize(gl_FragColor.xy);
-                  
-                }
-              </script>
-              
-              <script src="http://localhost:8888/js/webgl-debug.js"></script>
-              
-              <script src="/js/gl-matrix-min.js"></script>
-              <script src="/js/geometry.js"></script>
-              <script src="/js/main.js"></script>
             </div>
           </div>
           <div class="col-md-4">
@@ -206,7 +197,7 @@
         </div>
       </div>
     </div>
-    
+
     <div class="learn-more">
       <div class="container">
         <div class="row">
@@ -228,5 +219,11 @@
         </div>
       </div>
     </div>
+
+	<script src="/js/webgl-debug.js"></script>
+	<script src="/js/gl-matrix-min.js"></script>
+	<script src="/js/geometry.js"></script>
+	<script src="/js/main.js"></script>
+	<script src="/js/handler.js"></script>
   </body>
 </html>
