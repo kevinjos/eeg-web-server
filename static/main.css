@@ -13,14 +13,16 @@
 .jumbotron {
   font-family: 'Shift', sans-serif;
   background-image:url('http://upload.wikimedia.org/wikipedia/commons/8/88/NeuronGolgi.png');
-  height: 620px;
+  height: 750px;
   background-repeat: no-repeat;
   background-size: cover;
 }
 
-.jumbotron .container {
+.jumbotron .container-fluid {
   position: relative;
-  top:100px;
+  padding-top: 10px;
+  padding-left:100px;  
+  padding-right:100px;
 }
 
 .jumbotron h1 {
@@ -36,6 +38,8 @@
 }
 
 .graph-guides {
+    padding-left: 100px;
+    padding-right: 100px;
     background-color: #efefef;
     border-bottom: 1px solid #dbdbdb;
 }
@@ -50,7 +54,18 @@
     margin-bottom: 13px;
 }
 
+[type="image"]{
+    width: 100%;
+}
+
+.faded {
+  opacity:.4;
+  prop: 'active';
+}
+
 .learn-more {
+  padding-left: 100px;
+  padding-right: 100px;
   background-color: #f7f7f7;
 }
 

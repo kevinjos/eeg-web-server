@@ -9,7 +9,7 @@ jQuery(document).ready(function() {
 	jQuery("#chantoggle :input").click(function() {
 		var postURL = $(this).attr('href') + 
 									$(this).attr('value') + '/' + 
-									$(this).is(':checked');
+									$(this).attr('active');
 		jQuery.ajax({	type:"POST",
 									url:postURL
 								});
