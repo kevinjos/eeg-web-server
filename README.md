@@ -9,6 +9,7 @@ Requirements
 * Go <https://golang.org> (Confirmed compatible with v1.3 and v1.4)
 * FFTW 3.x <http://fftw.org> (Perhaps check your package manager first)
 * The openbci-golang-server binary for your distribution not yet provided
+* FTDI Virtual Com Port Driver <http://www.ftdichip.com/Drivers/VCP.htm>
 
 To test and contribute code
 ---------------------------
