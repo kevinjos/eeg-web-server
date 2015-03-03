@@ -27,11 +27,13 @@ import (
 var addr = flag.String("addr", ":8888", "http service address")
 
 const (
+	channels         = 8
 	samplesPerSecond = 250
-	packetBatchSize  = 250
-	readTimeout      = 1000 * packetBatchSize / samplesPerSecond * time.Millisecond
-	readBufferSize   = 33 * packetBatchSize
+	readTimeout      = 1000 * time.Millisecond
+	readBufferSize   = 33 * samplesPerSecond
 	baud             = 115200
+	FFTSize          = samplesPerSecond
+	RawMsgSize       = 20
 )
 
 var location string = "/dev/ttyUSB0"
@@ -40,7 +42,6 @@ func main() {
 	h := NewHub()
 	shutdown := make(chan bool, 1)
 	defer func() {
-		close(shutdown)
 		h.Close()
 	}()
 	mc := NewMindControl(h.broadcast, shutdown)

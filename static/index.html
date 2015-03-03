@@ -1,9 +1,31 @@
 <!DOCTYPE html>
 <html>
   <head>
+		<style>
+
+			.axis text {
+				font: 10px sans-serif;
+			}
+
+			.axis path,
+			.axis line {
+				fill: none;
+				stroke: #000;
+				shape-rendering: crispEdges;
+			}
+
+			.line {
+				fill: none;
+				stroke: steelblue;
+				stroke-width: 1.5px;
+			}
+
+		</style>
+
     <link rel="stylesheet" href="../bootstrap/css/bootstrap.css">
     <link rel="stylesheet" href="/static/mainc.css">
     <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+		<script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
     <script type="text/javascript">
       if (window["WebSocket"]) {
         conn = new WebSocket("ws://{{$}}/ws");
@@ -11,10 +33,16 @@
           console.log("closing");
         }
         conn.onmessage = function(evt) {
-          data = JSON.parse(evt.data);
-          console.log("received data:", data);
-          var newDatum = data.FFTs.FFTChan1.slice(0, 125);
-          bciVis.updateData(newDatum);
+          rdata = JSON.parse(evt.data);
+					if (rdata == null) {
+						return
+					} else if (rdata.Name == "raw") {
+						for (i = 0; i < rdata.Payload.Chan1.length; i++) {
+							timeseries.updateRaw(rdata.Payload.Chan1[i]);
+						}
+					} else if (rdata.Name == "fft") {
+						bciVis.updateData(rdata.Payload.Chan1.slice(0, 125));
+					}
         }
         conn.onopen = function(evt) {
           console.log("opening");
@@ -174,9 +202,7 @@
         <p>Graph your brain waves using the Open-BCI Go Server.</p>
         <div class='row'>
           <div class="col-md-4">
-            <div class="thumbnail">
-              <img src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg">
-            </div>
+							<svg class="timeseries2d"></svg>
             <div class="thumbnail">
               <img src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg">
             </div>
@@ -225,5 +251,6 @@
 	<script src="/js/geometry.js"></script>
 	<script src="/js/main.js"></script>
 	<script src="/js/handler.js"></script>
+	<script src="/js/timeseries.js"></script>
   </body>
 </html>

@@ -25,31 +25,36 @@ import (
 )
 
 type PacketBatcher struct {
-	packets       [packetBatchSize]*Packet
-	Chans         map[string][packetBatchSize]float64
+	Chans         map[string][]float64
 	FFTs          map[string][]float64
 	SignalQuality float64
+	packets       []*Packet
+	size          int
 }
 
-func NewPacketBatcher() *PacketBatcher {
-	chans := make(map[string][packetBatchSize]float64)
+func NewPacketBatcher(size int) *PacketBatcher {
+	chans := make(map[string][]float64)
 	ffts := make(map[string][]float64)
-	var pkts [packetBatchSize]*Packet
+	for i := 1; i <= channels; i++ {
+		chans["Chan"+strconv.Itoa(i)] = make([]float64, size)
+		ffts["Chan"+strconv.Itoa(i)] = make([]float64, size/2)
+	}
 	return &PacketBatcher{
 		Chans:   chans,
 		FFTs:    ffts,
-		packets: pkts,
+		packets: make([]*Packet, size),
+		size:    size,
 	}
 }
 
-func (pb *PacketBatcher) dft(input [packetBatchSize]float64) []float64 {
-	data := fftw.NewArray(packetBatchSize)
+func (pb *PacketBatcher) dft(input []float64) []float64 {
+	data := fftw.NewArray(pb.size)
 	for idx, val := range input {
 		data.Set(idx, complex(val, 0.0))
 	}
 	forward := fftw.NewPlan(data, data, fftw.Forward, fftw.Estimate)
 	forward.Execute()
-	data_out := make([]float64, packetBatchSize)
+	data_out := make([]float64, pb.size)
 	for idx, val := range data.Elems {
 		data_out[idx] = cmplx.Abs(val)
 	}
@@ -57,40 +62,37 @@ func (pb *PacketBatcher) dft(input [packetBatchSize]float64) []float64 {
 }
 
 func (pb *PacketBatcher) batch() {
-	var (
-		chan1         [packetBatchSize]float64
-		chan2         [packetBatchSize]float64
-		chan3         [packetBatchSize]float64
-		chan4         [packetBatchSize]float64
-		chan5         [packetBatchSize]float64
-		chan6         [packetBatchSize]float64
-		chan7         [packetBatchSize]float64
-		chan8         [packetBatchSize]float64
-		signalQuality [packetBatchSize]uint8
-		chans         = [8]*[packetBatchSize]float64{&chan1, &chan2, &chan3, &chan4, &chan5, &chan6, &chan7, &chan8}
-	)
 	for i, p := range pb.packets {
-		chan1[i] = p.Chan1
-		chan2[i] = p.Chan2
-		chan3[i] = p.Chan3
-		chan4[i] = p.Chan4
-		chan5[i] = p.Chan5
-		chan6[i] = p.Chan7
-		chan7[i] = p.Chan7
-		chan8[i] = p.Chan8
-		signalQuality[i] = p.SignalQuality
+		pb.Chans["Chan1"][i] = p.Chan1
+		pb.Chans["Chan2"][i] = p.Chan2
+		pb.Chans["Chan3"][i] = p.Chan3
+		pb.Chans["Chan4"][i] = p.Chan4
+		pb.Chans["Chan5"][i] = p.Chan5
+		pb.Chans["Chan6"][i] = p.Chan7
+		pb.Chans["Chan7"][i] = p.Chan7
+		pb.Chans["Chan8"][i] = p.Chan8
 	}
-	var emptyChan [packetBatchSize]float64
-	for i, ch := range chans {
-		if *ch != emptyChan {
-			pb.Chans["Chan"+strconv.Itoa(i+1)] = *ch
-			pb.FFTs["FFTChan"+strconv.Itoa(i+1)] = pb.dft(*ch)
+	pb.deleteEmptyChans()
+}
+
+func (pb *PacketBatcher) deleteEmptyChans() {
+	for key, val := range pb.Chans {
+		for i, v := range val {
+			if v != 0 {
+				break
+			}
+			if i == len(val)-1 {
+				delete(pb.Chans, key)
+			}
 		}
 	}
-	for _, sq := range signalQuality {
-		pb.SignalQuality += float64(sq)
+}
+
+func (pb *PacketBatcher) setFFT() {
+	for key, val := range pb.Chans {
+		mirrored := pb.dft(val)
+		pb.FFTs[key] = mirrored[:len(mirrored)/2]
 	}
-	pb.SignalQuality /= packetBatchSize
 }
 
 type Packet struct {
@@ -107,6 +109,19 @@ func NewPacket() *Packet {
 		footer:        '\xc0',
 		SignalQuality: 100,
 	}
+}
+
+func (p *Packet) RawChans() map[string][]float64 {
+	m := make(map[string][]float64)
+	m["Chan1"] = []float64{p.Chan1}
+	m["Chan2"] = []float64{p.Chan2}
+	m["Chan3"] = []float64{p.Chan3}
+	m["Chan4"] = []float64{p.Chan4}
+	m["Chan5"] = []float64{p.Chan5}
+	m["Chan6"] = []float64{p.Chan6}
+	m["Chan7"] = []float64{p.Chan7}
+	m["Chan8"] = []float64{p.Chan8}
+	return m
 }
 
 func encodePacket(p *[33]byte, sq byte, gain *[8]float64, synced bool) *Packet {

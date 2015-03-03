@@ -88,7 +88,7 @@ type readMsg struct {
 	err error
 }
 
-func toStruct(n int, err error) readMsg {
+func newReadMsg(n int, err error) readMsg {
 	return readMsg{n: n,
 		err: err}
 }
@@ -111,7 +111,7 @@ func (d *OpenBCI) read(buf []byte) {
 				go func(timeout <-chan bool, out chan readMsg) {
 					select {
 					case <-timeout:
-					case out <- toStruct(d.conn.Read(buf)):
+					case out <- newReadMsg(d.conn.Read(buf)):
 					}
 				}(timeout, out)
 				select {

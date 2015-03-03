@@ -16,7 +16,7 @@ type hub struct {
 	// Registered connections.
 	connections map[*WSConn]bool
 	// Inbound messages from the connections.
-	broadcast chan *PacketBatcher
+	broadcast chan *Message
 	// Register requests from the connections.
 	register chan *WSConn
 	// Unregister requests from connections.
@@ -27,7 +27,7 @@ type hub struct {
 
 func NewHub() *hub {
 	return &hub{
-		broadcast:   make(chan *PacketBatcher),
+		broadcast:   make(chan *Message, 32),
 		register:    make(chan *WSConn),
 		unregister:  make(chan *WSConn),
 		connections: make(map[*WSConn]bool),

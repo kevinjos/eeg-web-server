@@ -38,11 +38,11 @@ const (
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
-	WriteBufferSize: 4096,
+	WriteBufferSize: 4096 * 16,
 }
 
 type WSConn struct {
-	send   chan *PacketBatcher
+	send   chan *Message
 	wsConn *websocket.Conn
 }
 
@@ -50,14 +50,13 @@ func NewWSConn(w http.ResponseWriter, r *http.Request) (*WSConn, error) {
 	if r.Method != "GET" {
 		http.Error(w, "Method not allowed", 405)
 	}
-	wc := make(chan *PacketBatcher)
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("Error upgrading ws connection.", err)
 	}
 	return &WSConn{
 		wsConn: conn,
-		send:   wc,
+		send:   make(chan *Message, 32),
 	}, err
 }
 
@@ -66,7 +65,7 @@ func (ws *WSConn) write(mt int, payload []byte) error {
 	return ws.wsConn.WriteMessage(mt, payload)
 }
 
-func (ws *WSConn) writeJson(payload *PacketBatcher) error {
+func (ws *WSConn) writeJson(payload *Message) error {
 	ws.wsConn.SetWriteDeadline(time.Now().Add(writeWait))
 	return ws.wsConn.WriteJSON(payload)
 }
