@@ -2,7 +2,7 @@
 <html>
   <head>
     <link rel="stylesheet" href="../bootstrap/css/bootstrap.css">
-    <link rel="stylesheet" href="/static/mainc.css">
+    <link rel="stylesheet" href="/js/main.css">
     <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
     <script type="text/javascript">
       if (window["WebSocket"]) {
@@ -31,7 +31,7 @@
 
   <body>
     <div class="nav">
-      <div class="container">
+      <div class="container-fluid">
         <ul class="pull-left">
           <li><a href="#">Open-BCI go server</a></li>
           <li><a href="https://github.com/kevinjos/openbci-golang-server">Source</a></li>
@@ -45,16 +45,17 @@
     </div>
 
     <div class="jumbotron">
-      <div class="container">
+      
+      <div class="container-fluid">
         <h1>Visualize your brain waves.</h1>
         <p>Graph your brain waves using the Open-BCI Go Server.</p>
         <a href="#">Get started</a>
         <div class="row">
-          <div class="col-md-4">
+          <div class="col-md-8">
             <div class="canvas">
               <script src="/js/handler.js"></script>
             
-              <canvas id="canvas" width="400" height="300"></canvas>
+              <canvas id="canvas" width="750" height="500"></canvas>
               
               <script id="vertShader" type="x-shader/x-vertex">
                 uniform mat4 modelMat;
@@ -89,21 +90,8 @@
               <script src="/js/main.js"></script>
             </div>
           </div>
-          <div class="col-md-4">
-            <div id="chantoggle" align="left" class="pull-left"><br>
-              <input type="checkbox" value="1" href="http://{{$}}/x/" checked>Channel 1<br> 
-              <input type="checkbox" value="2" href="http://{{$}}/x/" checked>Channel 2<br>
-              <input type="checkbox" value="3" href="http://{{$}}/x/" checked>Channel 3<br>
-              <input type="checkbox" value="4" href="http://{{$}}/x/" checked>Channel 4<br>
-              <input type="checkbox" value="5" href="http://{{$}}/x/" checked>Channel 5<br>
-              <input type="checkbox" value="6" href="http://{{$}}/x/" checked>Channel 6<br>
-              <input type="checkbox" value="7" href="http://{{$}}/x/" checked>Channel 7<br>
-              <input type="checkbox" value="8" href="http://{{$}}/x/" checked>Channel 8<br>
-            <br>
-            </div>
-          </div>
 
-          <div class="col-md-4">
+          <div class="col-md-3">
             <div id="streamcommands" align="center">
               <input type="button" value="open" href="http://{{$}}/open">
               <input type="button" value="reset" href="http://{{$}}/reset">
@@ -178,29 +166,41 @@
     </div> 
 
     <div class="graph-guides">
-      <div class="container">
+      <div class="container-fluid">
         <h2>Visualize your brain waves.</h2>
         <p>Graph your brain waves using the Open-BCI Go Server.</p>
-        <div class='row'>
+        <div class="row">
           <div class="col-md-4">
-            <div class="thumbnail">
-              <img src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg">
+            <div class="thumbnail" id="chantoggle">
+              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="Channel 1" value="1" href="http://{{$}}/x/" active="true">Channel 1</input>
             </div>
-            <div class="thumbnail">
-              <img src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg">
+            <div class="thumbnail" id="chantoggle">
+              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="Channel 4" value="4" href="http://{{$}}/x/" active="true">Channel 4</input>
+            </div>
+            <div class="thumbnail" id="chantoggle">
+              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="Channel 7" value="7" href="http://{{$}}/x/" active="true">Channel 7</input>
+            </div>
+          </div>
+          <div class="col-md-4">           
+            <div class="thumbnail" id="chantoggle">
+              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="Channel 2" value="2" href="http://{{$}}/x/" active="true">Channel 2</input>
+            </div>
+            <div class="thumbnail" id="chantoggle">
+              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="Channel 5" value="5" href="http://{{$}}/x/" active="true">Channel 5</input>
+            </div>
+            <div class="thumbnail" id="chantoggle">
+              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="Channel 8" value="8" href="http://{{$}}/x/" active="true">Channel 8</input>
             </div>
           </div>
           <div class="col-md-4">
-            <div class="thumbnail">
-              <img src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg">
+            <div class="thumbnail" id="chantoggle">
+              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="Channel 3" value="3" href="http://{{$}}/x/" active="true">Channel 3</input>
             </div>
-            <div class="thumbnail">
-              <img src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg">
+            <div class="thumbnail" id="chantoggle">
+              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="Channel 6" value="6" href="http://{{$}}/x/" active="true">Channel 6</input>
             </div>
-          </div>
-          <div class="col-md-4">
-            <div class="thumbnail">
-              <img src="http://simetronsac.com/images/dx/eeg-24/eeg4.gif">
+            <div class="thumbnail" id="chantoggle">
+              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="All Chanels" value="9" href="http://{{$}}/x/" active="true">All Channels</input>
             </div>
           </div>
         </div>
@@ -208,7 +208,7 @@
     </div>
     
     <div class="learn-more">
-      <div class="container">
+      <div class="container-fluid">
         <div class="row">
           <div class="col-md-4">
             <h3>Participate</h3>
@@ -228,5 +228,9 @@
         </div>
       </div>
     </div>
+
+    <script src="http://code.jquery.com/jquery-1.11.0.min.js"></script>
+    <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+    <script src="/static/app.js"></script>
   </body>
 </html>
