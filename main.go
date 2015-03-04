@@ -29,7 +29,7 @@ var addr = flag.String("addr", ":8888", "http service address")
 const (
 	channels         = 8
 	samplesPerSecond = 250
-	readTimeout      = 1000 * time.Millisecond
+	readTimeout      = 100 * time.Millisecond
 	readBufferSize   = 33 * samplesPerSecond
 	baud             = 115200
 	FFTSize          = samplesPerSecond

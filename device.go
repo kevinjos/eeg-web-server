@@ -83,22 +83,11 @@ func (d *OpenBCI) command() {
 	}
 }
 
-type readMsg struct {
-	n   int
-	err error
-}
-
-func newReadMsg(n int, err error) readMsg {
-	return readMsg{n: n,
-		err: err}
-}
-
 func (d *OpenBCI) read(buf []byte) {
-	out := make(chan readMsg)
-	timeout := make(chan bool, 64)
+	out := make(chan int)
+	reading := false
 	defer func() {
 		close(out)
-		close(timeout)
 	}()
 	for {
 		select {
@@ -108,23 +97,26 @@ func (d *OpenBCI) read(buf []byte) {
 			return
 		default:
 			if d.conn != nil {
-				go func(timeout <-chan bool, out chan readMsg) {
-					select {
-					case <-timeout:
-					case out <- newReadMsg(d.conn.Read(buf)):
-					}
-				}(timeout, out)
+				if !reading {
+					reading = true
+					go func(out chan<- int) {
+						n, err := d.conn.Read(buf)
+						if err != nil {
+							log.Println("Read error:", err)
+							reading = false
+							return
+						}
+						out <- n
+					}(out)
+				}
 				select {
 				case <-time.After(readTimeout):
-					timeout <- true
 					d.timeoutChan <- true
-				case msg := <-out:
-					if msg.err != nil {
-						log.Println("Read error:", msg.err)
-					}
-					for i := 0; i < msg.n; i++ {
+				case n := <-out:
+					for i := 0; i < n; i++ {
 						d.readChan <- buf[i]
 					}
+					reading = false
 				}
 			}
 		}
@@ -168,6 +160,7 @@ func (d *OpenBCI) reset(resumeChan chan bool) {
 	defer close(resumeRead)
 	d.pauseReadChan <- resumeRead
 	d.writeChan <- "v"
+	time.Sleep(10 * time.Millisecond)
 	resumeRead <- true
 
 	init_array = [3]byte{'\x24', '\x24', '\x24'}
