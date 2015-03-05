@@ -30,7 +30,7 @@ const (
 	channels         = 8
 	samplesPerSecond = 250
 	readTimeout      = 100 * time.Millisecond
-	readBufferSize   = 33 * samplesPerSecond
+	readBufferSize   = 1024 * 1024
 	baud             = 115200
 	FFTSize          = samplesPerSecond
 	RawMsgSize       = 20

@@ -4,10 +4,10 @@ var main = function() {
 
     if ($(this).hasClass('faded')) {
       $(this).attr('active', false);
-      //console.log("now faded "+ $(this).attr('active'));
+      console.log("now faded "+ $(this).attr('active'));
     } else {
       $(this).attr('active', true);
-      //console.log("not faded "+ $(this).attr('active'));
+      console.log("not faded "+ $(this).attr('active'));
     };
   }
   );

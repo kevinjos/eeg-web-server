@@ -19,9 +19,11 @@
 package main
 
 import (
-	"github.com/pkg/term"
+  "github.com/tarm/goserial"
+  "io"
 	"log"
 	"time"
+//"github.com/pkg/term"
 )
 
 type ReadWriteFlushCloser interface {
@@ -39,7 +41,7 @@ type OpenBCI struct {
 	pauseReadChan chan chan bool
 	quitCommand   chan bool
 	quitRead      chan bool
-	conn          ReadWriteFlushCloser
+	conn          io.ReadWriteCloser
 }
 
 func NewOpenBCI() *OpenBCI {
@@ -59,7 +61,6 @@ func (d *OpenBCI) Close() {
 	d.quitCommand <- true
 	if d.conn != nil {
 		d.quitRead <- true
-		d.conn.Flush()
 		d.conn.Close()
 		log.Println("Safely closed the device")
 	}
@@ -102,7 +103,6 @@ func (d *OpenBCI) read(buf []byte) {
 					go func(out chan<- int) {
 						n, err := d.conn.Read(buf)
 						if err != nil {
-							log.Println("Read error:", err)
 							reading = false
 							return
 						}
@@ -135,7 +135,12 @@ func (d *OpenBCI) write(s string) {
 }
 
 func (d *OpenBCI) open() {
-	conn, err := term.Open(location, term.Speed(baud), term.CBreakMode)
+  conf := &serial.Config{Name: location,
+                          Baud: baud,
+                          ReadTimeout: readTimeout,
+                          }
+	conn, err := serial.OpenPort(conf)
+	//conn, err := term.Open(location, term.Speed(baud), term.CBreakMode)
 	if err != nil {
 		log.Fatal("Error conneting to serial device at [", location, "]: [", err, "]")
 	}
@@ -151,8 +156,6 @@ func (d *OpenBCI) reset(resumeChan chan bool) {
 		init_array [3]byte
 		index      int
 	)
-
-	d.conn.Flush()
 
 	d.writeChan <- "s"
 	time.Sleep(10 * time.Millisecond)

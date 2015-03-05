@@ -37,11 +37,32 @@
 					if (rdata == null) {
 						return
 					} else if (rdata.Name == "raw") {
-						for (i = 0; i < rdata.Payload.Chan1.length; i++) {
-							timeseries.updateRaw(rdata.Payload.Chan1[i]);
-						}
+            if (rdata.Payload.Chan1) {
+                updaterawchan1(rdata.Payload.Chan1);
+            }
+            if (rdata.Payload.Chan2) {
+                updaterawchan2(rdata.Payload.Chan2);
+            }
+            if (rdata.Payload.Chan3) {
+                updaterawchan3(rdata.Payload.Chan3);
+            }
+            if (rdata.Payload.Chan4) {
+                updaterawchan4(rdata.Payload.Chan4);
+            }
+            if (rdata.Payload.Chan5) {
+                updaterawchan5(rdata.Payload.Chan5);
+            }
+            if (rdata.Payload.Chan6) {
+                updaterawchan6(rdata.Payload.Chan6);
+            }
+            if (rdata.Payload.Chan7) {
+                updaterawchan7(rdata.Payload.Chan7);
+            }
+            if (rdata.Payload.Chan8) {
+                updaterawchan8(rdata.Payload.Chan8);
+            }
 					} else if (rdata.Name == "fft") {
-						bciVis.updateData(rdata.Payload.Chan1.slice(0, 125));
+						bciVis.updateData(rdata.Payload.Chan1.slice(1, 15));
 					}
         }
         conn.onopen = function(evt) {
@@ -63,8 +84,11 @@
 			attribute vec3 pos;
 
 			varying vec4 worldPos;
+			varying highp float voltage;
 			void main() {
-				worldPos = modelMat * vec4(pos, 1);
+				voltage = pos.y * 100000.0;
+				vec3 realPos = vec3(pos.x, log(voltage + 0.0000001), pos.z);
+				worldPos = modelMat * vec4(realPos, 1);
 				gl_Position = projMat * viewMat * worldPos;
 			}
 
@@ -73,10 +97,17 @@
 		<script id="fragShader" type="x-shader/x-fragment">
 
 			varying mediump vec4 worldPos;
+			varying highp float voltage;
 
 			void main() {
-				gl_FragColor = vec4(1.0 - worldPos.y, worldPos.y, 0.0, 1.0);
-				gl_FragColor.xy = normalize(gl_FragColor.xy);
+				lowp float mag = 1.0/(1.0 + 1.0 / voltage);
+				//gl_FragColor = vec4(1.0 - mag, mag, 0.0, 1.0);
+				//gl_FragColor.xy = normalize(gl_FragColor.xy);
+				gl_FragColor = vec4(1.0 - worldPos.x, 0, worldPos.x, 1);
+				gl_FragColor.xyz *= 1.0 / max(gl_FragColor.x, max (gl_FragColor.y, gl_FragColor.z));
+				//highp float lineSpacing = float(int(log(voltage))) * 10.0;
+				//if (mod(voltage, lineSpacing) < lineSpacing / 10.0) gl_FragColor = vec4(0, 0, 0, 1);
+				if (mod(worldPos.y, 0.1) < 0.01) gl_FragColor = vec4(0, 0, 0, 1);
 
 			}
 		</script>
@@ -222,35 +253,49 @@
         <p>Graph your brain waves using the Open-BCI Go Server.</p>
         <div class="row">
           <div class="col-md-4">
-            <div class="thumbnail" id="chantoggle">
-              <svg class="timeseries2d" alt="Channel 1" value="1" href="http://{{$}}/x/" active="true"></svg>            </div>
-            <div class="thumbnail" id="chantoggle">
-              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="Channel 4" value="4" href="http://{{$}}/x/" active="true">Channel 4</input>
+            <div class="thumbnail">
+              <input type="button" alt="Channe l" value="1" href="http://{{$}}/x/" active="true">
+                <svg id="timeserieschan1"></svg>
+              </input>
             </div>
-            <div class="thumbnail" id="chantoggle">
-              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="Channel 7" value="7" href="http://{{$}}/x/" active="true">Channel 7</input>
+            <div class="thumbnail">
+              <input type="button" alt="Channel 4" value="4" href="http://{{$}}/x/" active="true">
+                <svg id="timeserieschan4"></svg>
+              </input>
             </div>
-          </div>
-          <div class="col-md-4">           
-            <div class="thumbnail" id="chantoggle">
-              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="Channel 2" value="2" href="http://{{$}}/x/" active="true">Channel 2</input>
-            </div>
-            <div class="thumbnail" id="chantoggle">
-              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="Channel 5" value="5" href="http://{{$}}/x/" active="true">Channel 5</input>
-            </div>
-            <div class="thumbnail" id="chantoggle">
-              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="Channel 8" value="8" href="http://{{$}}/x/" active="true">Channel 8</input>
+            <div class="thumbnail">
+              <input type="button" alt="Channel 7" value="7" href="http://{{$}}/x/" active="true">
+                <svg id="timeserieschan7"></svg>
+              </input>
             </div>
           </div>
           <div class="col-md-4">
-            <div class="thumbnail" id="chantoggle">
-              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="Channel 3" value="3" href="http://{{$}}/x/" active="true">Channel 3</input>
+            <div class="thumbnail">
+              <input type="button" alt="Channel 2" value="2" href="http://{{$}}/x/" active="true">
+                <svg id="timeserieschan2"></svg>
+              </input>
             </div>
-            <div class="thumbnail" id="chantoggle">
-              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="Channel 6" value="6" href="http://{{$}}/x/" active="true">Channel 6</input>
+            <div class="thumbnail">
+              <input type="button" alt="Channel 5" value="5" href="http://{{$}}/x/" active="true">
+                <svg id="timeserieschan5"></svg>
+              </input>
             </div>
-            <div class="thumbnail" id="chantoggle">
-              <input type="image" src="http://dailyheal.com/wp-content/uploads/Use-Meditation-To-Reboot-Your-Brain.jpg" alt="All Chanels" value="9" href="http://{{$}}/x/" active="true">All Channels</input>
+            <div class="thumbnail">
+              <input type="button" alt="Channel 8" value="8" href="http://{{$}}/x/" active="true">
+                <svg id="timeserieschan8"></svg>
+              </input>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="thumbnail">
+              <input type="button" alt="Channel 3" value="3" href="http://{{$}}/x/" active="true">
+                <svg id="timeserieschan3"></svg>
+              </input>
+            </div>
+            <div class="thumbnail">
+              <input type="button" alt="Channel 6" value="6" href="http://{{$}}/x/" active="true">
+                <svg id="timeserieschan6"></svg>
+              </input>
             </div>
           </div>
         </div>
