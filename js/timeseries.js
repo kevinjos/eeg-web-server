@@ -17,7 +17,7 @@ var rawScope = {
         .orient("bottom");
 
     var y = d3.scale.linear()
-        .domain([-.1, .1])
+        .domain([-187500.0, 187500.0])
         .range([height, 0])
         .clamp(true);
 
@@ -61,7 +61,7 @@ var rawScope = {
 
     return function(d) {
       for (i = 0; i < d.length; i++) {
-          data.push(Math.log(Math.abs(d[i] * 72)));
+          data.push(d[i]);
           data.shift();
       }
       // redraw the line, and slide it to the left
@@ -85,10 +85,10 @@ var rawScope = {
 		.attr("d", line)
 		.attr("transform", null)
 		.transition()
-		.duration(500)
-		.ease("linear")
-		.attr("transform", "translate(" + x(-1) + ",0)")
-		.each("end", scope.tick);
+		//.duration(500)
+		//.ease("linear")
+		//.attr("transform", "translate(" + x(-1) + ",0)")
+		//.each("end", scope.tick);
 		// pop the old data point off the front
 		data.shift();
 	}, 

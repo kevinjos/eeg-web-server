@@ -261,14 +261,14 @@ func (mc *MindControl) GenTestPackets() {
 		default:
 			if on {
 				packet := NewPacket()
-				packet.Chan1 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
-				packet.Chan2 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
-				packet.Chan3 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
-				packet.Chan4 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
-				packet.Chan5 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
-				packet.Chan6 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
-				packet.Chan7 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
-				packet.Chan8 = scaleToVolts(rand.Int31n(1<<23)*sign(), gain)
+				packet.Chan1 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
+				packet.Chan2 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
+				packet.Chan3 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
+				packet.Chan4 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
+				packet.Chan5 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
+				packet.Chan6 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
+				packet.Chan7 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
+				packet.Chan8 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
 				mc.PacketChan <- packet
 				time.Sleep(4 * time.Millisecond)
 			}

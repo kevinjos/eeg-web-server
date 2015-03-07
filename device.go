@@ -19,11 +19,11 @@
 package main
 
 import (
-  "github.com/tarm/goserial"
-  "io"
+	"github.com/tarm/goserial"
+	"io"
 	"log"
 	"time"
-//"github.com/pkg/term"
+	//"github.com/pkg/term"
 )
 
 type ReadWriteFlushCloser interface {
@@ -135,10 +135,10 @@ func (d *OpenBCI) write(s string) {
 }
 
 func (d *OpenBCI) open() {
-  conf := &serial.Config{Name: location,
-                          Baud: baud,
-                          ReadTimeout: readTimeout,
-                          }
+	conf := &serial.Config{Name: location,
+		Baud:        baud,
+		ReadTimeout: readTimeout,
+	}
 	conn, err := serial.OpenPort(conf)
 	//conn, err := term.Open(location, term.Speed(baud), term.CBreakMode)
 	if err != nil {
