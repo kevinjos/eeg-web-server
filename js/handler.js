@@ -6,13 +6,24 @@ jQuery(document).ready(function() {
 								});
 	});
 
-	jQuery("#chantoggle :input").click(function() {
-		var postURL = $(this).attr('href') + 
-									$(this).attr('value') + '/' + 
+	jQuery(".thumbnail").click(function() {
+		$(this).toggleClass('faded');
+
+		if ($(this).hasClass('faded')) {
+			$(this).attr('active', false);
+		} else {
+			$(this).attr('active', true);
+		};
+
+		var button = $(this).find(":input")
+
+		var postURL = $(button).attr('href') + 
+									$(button).attr('value') + '/' + 
 									$(this).attr('active');
-		jQuery.ajax({	type:"POST",
-									url:postURL
-								});
+		console.log(postURL)
+		//jQuery.ajax({	type:"POST",
+		//								url:postURL
+		//							});
 	});
 
 	jQuery("#complexcommands #update").click(function() {

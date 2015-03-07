@@ -1,27 +1,6 @@
 <!DOCTYPE html>
 <html>
   <head>
-		<style>
-
-			.axis text {
-				font: 10px sans-serif;
-			}
-
-			.axis path,
-			.axis line {
-				fill: none;
-				stroke: #000;
-				shape-rendering: crispEdges;
-			}
-
-			.line {
-				fill: none;
-				stroke: steelblue;
-				stroke-width: 1.5px;
-			}
-
-		</style>
-
     <link rel="stylesheet" href="../bootstrap/css/bootstrap.css">
     <link rel="stylesheet" href="/static/main.css">
 		<script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
@@ -252,48 +231,48 @@
         <h2>Visualize your brain waves.</h2>
         <p>Graph your brain waves using the Open-BCI Go Server.</p>
         <div class="row">
-          <div class="col-md-4">
+          <div class="col-md-4" id="chantoggle">
             <div class="thumbnail">
-              <input type="button" alt="Channe l" value="1" href="http://{{$}}/x/" active="true">
+              <input type="hidden" value="1" href="http://{{$}}/x/">
                 <svg id="timeserieschan1"></svg>
               </input>
             </div>
             <div class="thumbnail">
-              <input type="button" alt="Channel 4" value="4" href="http://{{$}}/x/" active="true">
+              <input type="hidden" value="4" href="http://{{$}}/x/">
                 <svg id="timeserieschan4"></svg>
               </input>
             </div>
             <div class="thumbnail">
-              <input type="button" alt="Channel 7" value="7" href="http://{{$}}/x/" active="true">
+              <input type="hidden" value="7" href="http://{{$}}/x/">
                 <svg id="timeserieschan7"></svg>
               </input>
             </div>
           </div>
           <div class="col-md-4">
             <div class="thumbnail">
-              <input type="button" alt="Channel 2" value="2" href="http://{{$}}/x/" active="true">
+              <input type="hidden" value="2" href="http://{{$}}/x/">
                 <svg id="timeserieschan2"></svg>
               </input>
             </div>
             <div class="thumbnail">
-              <input type="button" alt="Channel 5" value="5" href="http://{{$}}/x/" active="true">
+              <input type="hidden" value="5" href="http://{{$}}/x/">
                 <svg id="timeserieschan5"></svg>
               </input>
             </div>
             <div class="thumbnail">
-              <input type="button" alt="Channel 8" value="8" href="http://{{$}}/x/" active="true">
+              <input type="hidden" value="8" href="http://{{$}}/x/">
                 <svg id="timeserieschan8"></svg>
               </input>
             </div>
           </div>
           <div class="col-md-4">
             <div class="thumbnail">
-              <input type="button" alt="Channel 3" value="3" href="http://{{$}}/x/" active="true">
+              <input type="hidden" value="3" href="http://{{$}}/x/">
                 <svg id="timeserieschan3"></svg>
               </input>
             </div>
             <div class="thumbnail">
-              <input type="button" alt="Channel 6" value="6" href="http://{{$}}/x/" active="true">
+              <input type="hidden" value="6" href="http://{{$}}/x/">
                 <svg id="timeserieschan6"></svg>
               </input>
             </div>
