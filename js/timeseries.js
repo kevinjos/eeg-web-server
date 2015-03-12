@@ -94,13 +94,13 @@ var rawScope = {
 	}, 
 };
 
-updaterawchan1 = rawScope.makechart("timeserieschan1")
-updaterawchan2 = rawScope.makechart("timeserieschan2")
-updaterawchan3 = rawScope.makechart("timeserieschan3")
-updaterawchan4 = rawScope.makechart("timeserieschan4")
-updaterawchan5 = rawScope.makechart("timeserieschan5")
-updaterawchan6 = rawScope.makechart("timeserieschan6")
-updaterawchan7 = rawScope.makechart("timeserieschan7")
-updaterawchan8 = rawScope.makechart("timeserieschan8")
+window.updaterawchan1 = rawScope.makechart("timeserieschan1")
+window.updaterawchan2 = rawScope.makechart("timeserieschan2")
+window.updaterawchan3 = rawScope.makechart("timeserieschan3")
+window.updaterawchan4 = rawScope.makechart("timeserieschan4")
+window.updaterawchan5 = rawScope.makechart("timeserieschan5")
+window.updaterawchan6 = rawScope.makechart("timeserieschan6")
+window.updaterawchan7 = rawScope.makechart("timeserieschan7")
+window.updaterawchan8 = rawScope.makechart("timeserieschan8")
 window.timeseries = rawScope;
 
