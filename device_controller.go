@@ -20,11 +20,12 @@ package main
 import (
 	"bytes"
 	"log"
-	"math/rand"
+	//"math/rand"
 	"os"
 	"strconv"
 	"time"
   "github.com/kevinjos/gofidlib"
+  "math"
 )
 
 type MindControl struct {
@@ -244,15 +245,10 @@ func (mc *MindControl) DecodeStream() {
 }
 
 func (mc *MindControl) GenTestPackets() {
-	var gain float64 = 24
+	//var gain float64 = 24
 	var on bool
-	sign := func() int32 {
-		if rand.Int31() > (1 << 30) {
-			return -1
-		} else {
-			return 1
-		}
-	}
+  var val float64
+  var i float64 = 0.0
 	for {
 		select {
 		case <-mc.quitGenTest:
@@ -261,7 +257,14 @@ func (mc *MindControl) GenTestPackets() {
 			on = <-mc.genToggleChan
 		default:
 			if on {
-				packet := NewPacket()
+        /*
+        sign := func() int32 {
+          if rand.Int31() > (1 << 30) {
+            return -1
+          } else {
+            return 1
+          }
+        }
 				packet.Chan1 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
 				packet.Chan2 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
 				packet.Chan3 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
@@ -270,6 +273,18 @@ func (mc *MindControl) GenTestPackets() {
 				packet.Chan6 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
 				packet.Chan7 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
 				packet.Chan8 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
+        */
+        i = i + 0.04
+        val = math.Sin(2.0 * math.Pi * i)
+				packet := NewPacket()
+				packet.Chan1 = val
+				packet.Chan2 = val
+				packet.Chan3 = val
+				packet.Chan4 = val
+				packet.Chan5 = val
+				packet.Chan6 = val
+				packet.Chan7 = val
+				packet.Chan8 = val
 				mc.PacketChan <- packet
 				time.Sleep(4 * time.Millisecond)
 			}
@@ -298,20 +313,18 @@ func (mc *MindControl) sendPackets() {
 
   filterDesign := make([]*gofidlib.FilterDesign, 8)
   filter := make([]*gofidlib.Filter, 8)
-  for i := 0; i < 8; i++ {
-    filterDesign[i] = gofidlib.NewFilterDesign("BpBe4/1-4", samplesPerSecond)
-    filter[i] = gofidlib.NewFilter(filterDesign[i])
+  for j := 0; j < 8; j++ {
+    filterDesign[j] = gofidlib.NewFilterDesign("LpBe4/40", samplesPerSecond)
+    filter[j] = gofidlib.NewFilter(filterDesign[j])
   }
 	pbFFT := NewPacketBatcher(FFTSize, false, filter)
-	pbRaw := NewPacketBatcher(RawMsgSize, true, filter)
+	pbRaw := NewPacketBatcher(RawMsgSize, false, filter)
 
 	for {
 		select {
 		case <-mc.quitSendPackets:
 			return
 		case p := <-mc.PacketChan:
-
-			i++
 
 			if mc.saving == true {
 				mc.savePacketChan <- p
@@ -320,13 +333,13 @@ func (mc *MindControl) sendPackets() {
 			pbFFT.packets[i%FFTSize] = p
 			pbRaw.packets[i%RawMsgSize] = p
 
-			if i%RawMsgSize == 0 {
+			if i%RawMsgSize == RawMsgSize - 1 {
 				pbRaw.batch()
 				m = NewMessage("raw", pbRaw.Chans)
 				mc.broadcast <- m
-				pbRaw = NewPacketBatcher(RawMsgSize, true, filter)
+				pbRaw = NewPacketBatcher(RawMsgSize, false, filter)
 			}
-			if i%FFTSize == 0 {
+			if i%FFTSize == FFTSize - 1 {
 				pbFFT.batch()
 				pbFFT.setFFT()
 				m = NewMessage("fft", pbFFT.FFTs)
@@ -338,6 +351,9 @@ func (mc *MindControl) sendPackets() {
 				log.Println(second-last_second, "nanoseconds have elapsed between 250 samples.")
 				last_second = second
 			}
+
+			i++
+
 		}
 	}
 }

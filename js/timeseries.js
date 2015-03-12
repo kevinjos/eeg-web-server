@@ -17,7 +17,7 @@ var rawScope = {
         .orient("bottom");
 
     var y = d3.scale.linear()
-        .domain([-10000, 10000.0])
+        .domain([-1.0, 1.0])
         .range([height, 0])
         .clamp(true);
 
