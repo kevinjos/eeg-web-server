@@ -24,6 +24,7 @@ import (
 	"os"
 	"strconv"
 	"time"
+  "github.com/kevinjos/gofidlib"
 )
 
 type MindControl struct {
@@ -295,8 +296,14 @@ func (mc *MindControl) sendPackets() {
 	second := time.Now().UnixNano()
 	var i int
 
-	pbFFT := NewPacketBatcher(FFTSize)
-	pbRaw := NewPacketBatcher(RawMsgSize)
+  filterDesign := make([]*gofidlib.FilterDesign, 8)
+  filter := make([]*gofidlib.Filter, 8)
+  for i := 0; i < 8; i++ {
+    filterDesign[i] = gofidlib.NewFilterDesign("BpBe4/1-4", samplesPerSecond)
+    filter[i] = gofidlib.NewFilter(filterDesign[i])
+  }
+	pbFFT := NewPacketBatcher(FFTSize, false, filter)
+	pbRaw := NewPacketBatcher(RawMsgSize, true, filter)
 
 	for {
 		select {
@@ -317,14 +324,14 @@ func (mc *MindControl) sendPackets() {
 				pbRaw.batch()
 				m = NewMessage("raw", pbRaw.Chans)
 				mc.broadcast <- m
-				pbRaw = NewPacketBatcher(RawMsgSize)
+				pbRaw = NewPacketBatcher(RawMsgSize, true, filter)
 			}
 			if i%FFTSize == 0 {
 				pbFFT.batch()
 				pbFFT.setFFT()
 				m = NewMessage("fft", pbFFT.FFTs)
 				mc.broadcast <- m
-				pbFFT = NewPacketBatcher(FFTSize)
+				pbFFT = NewPacketBatcher(FFTSize, false, filter)
 			}
 			if i%250 == 0 {
 				second = time.Now().UnixNano()

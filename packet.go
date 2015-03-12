@@ -20,6 +20,7 @@ package main
 
 import (
 	"github.com/runningwild/go-fftw/fftw"
+  "github.com/kevinjos/gofidlib"
 	"math/cmplx"
 	"strconv"
 )
@@ -27,23 +28,29 @@ import (
 type PacketBatcher struct {
 	Chans         map[string][]float64
 	FFTs          map[string][]float64
+  Filters map[string]*gofidlib.Filter
 	SignalQuality float64
 	packets       []*Packet
 	size          int
+  isFilter   bool
 }
 
-func NewPacketBatcher(size int) *PacketBatcher {
+func NewPacketBatcher(size int, isFilter bool, filters []*gofidlib.Filter) *PacketBatcher {
 	chans := make(map[string][]float64)
 	ffts := make(map[string][]float64)
+  filtermap := make(map[string]*gofidlib.Filter)
 	for i := 1; i <= channels; i++ {
 		chans["Chan"+strconv.Itoa(i)] = make([]float64, size)
 		ffts["Chan"+strconv.Itoa(i)] = make([]float64, size/2)
+    filtermap["Chan"+strconv.Itoa(i)] = filters[i-1]
 	}
 	return &PacketBatcher{
 		Chans:   chans,
 		FFTs:    ffts,
+    Filters: filtermap,
 		packets: make([]*Packet, size),
 		size:    size,
+    isFilter: isFilter,
 	}
 }
 
@@ -72,6 +79,13 @@ func (pb *PacketBatcher) batch() {
 		pb.Chans["Chan7"][i] = p.Chan7
 		pb.Chans["Chan8"][i] = p.Chan8
 	}
+  if pb.isFilter {
+    for k, v := range pb.Chans {
+      out := make([]float64, len(v))
+      pb.Filters[k].Run(v, out)
+      pb.Chans[k] = out
+    }
+  }
 	pb.deleteEmptyChans()
 }
 
