@@ -4,7 +4,7 @@ import "testing"
 
 func TestMCClose(t *testing.T) {
 	resChan := make(chan bool)
-	broadcast := make(chan *PacketBatcher)
+	broadcast := make(chan *Message)
 	shutdown := make(chan bool)
 	mc := NewMindControl(broadcast, shutdown)
 	mc.SerialDevice.conn = NewMockConn()
@@ -34,7 +34,7 @@ func TestMCClose(t *testing.T) {
 }
 
 func TestMCStart(t *testing.T) {
-	broadcast := make(chan *PacketBatcher)
+	broadcast := make(chan *Message)
 	shutdown := make(chan bool)
 	mc := NewMindControl(broadcast, shutdown)
 	mc.SerialDevice.conn = NewMockConn()

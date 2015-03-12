@@ -79,14 +79,14 @@ type testscalepair struct {
 
 var testsscale = []testscalepair{
 	{0, 0},
-	{8388607, 0.1875},
-	{-8388607, -0.1875},
+	{8388607, 187500},
+	{-8388607, -187500},
 }
 
 //TODO:Test differnt gain factors
 func TestScale(t *testing.T) {
 	for _, pair := range testsscale {
-		res := scaleToVolts(pair.data, 24)
+		res := scaleToMicroVolts(pair.data, 24)
 		if res != pair.result {
 			t.Error(
 				"For", pair.data,
@@ -144,7 +144,7 @@ var testsencode = []testencodepair{
 }
 
 func TestEncodePacket(t *testing.T) {
-	bc := make(chan *PacketBatcher)
+	bc := make(chan *Message)
 	sd := make(chan bool)
 	mc := NewMindControl(bc, sd)
 	for _, pair := range testsencode {

@@ -20,10 +20,9 @@ jQuery(document).ready(function() {
 		var postURL = $(button).attr('href') + 
 									$(button).attr('value') + '/' + 
 									$(this).attr('active');
-		console.log(postURL)
-		//jQuery.ajax({	type:"POST",
-		//								url:postURL
-		//							});
+		jQuery.ajax({	type:"POST",
+										url:postURL
+									});
 	});
 
 	jQuery("#complexcommands #update").click(function() {
