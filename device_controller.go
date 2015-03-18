@@ -311,14 +311,17 @@ func (mc *MindControl) sendPackets() {
 	second := time.Now().UnixNano()
 	var i int
 
-  filterDesign := make([]*gofidlib.FilterDesign, 8)
+	filterDesign, err := gofidlib.NewFilterDesign("LpBe4/40", samplesPerSecond)
+	if err != nil {
+		log.Fatal("Error creating filter design:", err)
+	}
   filter := make([]*gofidlib.Filter, 8)
   for j := 0; j < 8; j++ {
-    filterDesign[j] = gofidlib.NewFilterDesign("LpBe4/40", samplesPerSecond)
-    filter[j] = gofidlib.NewFilter(filterDesign[j])
+    filter[j] = gofidlib.NewFilter(filterDesign)
+		defer filter[j].Close()
   }
-	pbFFT := NewPacketBatcher(FFTSize, false, filter)
-	pbRaw := NewPacketBatcher(RawMsgSize, false, filter)
+	pbFFT := NewPacketBatcher(FFTSize)
+	pbRaw := NewPacketBatcher(RawMsgSize)
 
 	for {
 		select {
@@ -330,6 +333,15 @@ func (mc *MindControl) sendPackets() {
 				mc.savePacketChan <- p
 			}
 
+			p.Chan1 = filter[1].Run(p.Chan1)
+			p.Chan2 = filter[2].Run(p.Chan1)
+			p.Chan3 = filter[3].Run(p.Chan1)
+			p.Chan4 = filter[4].Run(p.Chan1)
+			p.Chan5 = filter[5].Run(p.Chan1)
+			p.Chan6 = filter[6].Run(p.Chan1)
+			p.Chan7 = filter[7].Run(p.Chan1)
+			p.Chan8 = filter[8].Run(p.Chan1)
+
 			pbFFT.packets[i%FFTSize] = p
 			pbRaw.packets[i%RawMsgSize] = p
 
@@ -337,14 +349,14 @@ func (mc *MindControl) sendPackets() {
 				pbRaw.batch()
 				m = NewMessage("raw", pbRaw.Chans)
 				mc.broadcast <- m
-				pbRaw = NewPacketBatcher(RawMsgSize, false, filter)
+				pbRaw = NewPacketBatcher(RawMsgSize)
 			}
 			if i%FFTSize == FFTSize - 1 {
 				pbFFT.batch()
 				pbFFT.setFFT()
 				m = NewMessage("fft", pbFFT.FFTs)
 				mc.broadcast <- m
-				pbFFT = NewPacketBatcher(FFTSize, false, filter)
+				pbFFT = NewPacketBatcher(FFTSize)
 			}
 			if i%250 == 0 {
 				second = time.Now().UnixNano()
