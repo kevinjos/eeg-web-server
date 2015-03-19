@@ -318,8 +318,13 @@ func (mc *MindControl) sendPackets() {
   filter := make([]*gofidlib.Filter, 8)
   for j := 0; j < 8; j++ {
     filter[j] = gofidlib.NewFilter(filterDesign)
-		// defer filter[j].Close()
   }
+	defer func() {
+		filterDesign.Free()
+		for j := 0; j < 8; j++ {
+			filter[j].Close()
+		}
+	}()
 	pbFFT := NewPacketBatcher(FFTSize)
 	pbRaw := NewPacketBatcher(RawMsgSize)
 
