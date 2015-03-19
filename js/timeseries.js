@@ -1,6 +1,6 @@
 var rawScope = {
   makechart : function(chartid) {
-    var n = 500;
+    var n = 250;
     var data = d3.range(n).map(function() {return 0});
 
     var margin = {top: 20, right: 30, bottom: 20, left: 40},
@@ -17,7 +17,7 @@ var rawScope = {
         .orient("bottom");
 
     var y = d3.scale.linear()
-        .domain([-1.0, 1.0])
+        .domain([-200.0, 200.0])
         .range([height, 0])
         .clamp(true);
 

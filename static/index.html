@@ -42,6 +42,7 @@
             }
 					} else if (rdata.Name == "fft") {
 						bciVis.updateData(rdata.Payload.Chan1.slice(1, 15));
+            console.log(rdata.Payload.Chan1.slice(1,25))
 					}
         }
         conn.onopen = function(evt) {
