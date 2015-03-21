@@ -40,4 +40,12 @@ jQuery(document).ready(function() {
 								});
 	});
 
+	jQuery("#deltafft #deltafftupdate").click(function() {
+		var fftsize = $("form#deltafftints #fftsize").val()
+		var fftfreq = $("form#deltafftints #fftfreq").val()
+		var postURL = $(this).attr('href') + fftsize + "&" + fftfreq
+		jQuery.ajax({	type:"POST",
+									url:postURL
+								});
+	});
 });

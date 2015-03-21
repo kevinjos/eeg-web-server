@@ -19,19 +19,19 @@ package main
 
 import (
 	"bytes"
+	"github.com/kevinjos/gofidlib"
 	"log"
-	//"math/rand"
+	"math"
 	"os"
 	"strconv"
 	"time"
-  "github.com/kevinjos/gofidlib"
-  "math"
 )
 
 type MindControl struct {
 	ReadChan         *chan byte
 	PacketChan       chan *Packet
 	savePacketChan   chan *Packet
+	deltaFFT         chan [2]int
 	ResetChan        chan bool
 	genToggleChan    chan bool
 	quitGenTest      chan bool
@@ -52,6 +52,7 @@ func NewMindControl(broadcast chan *Message, shutdown chan bool) *MindControl {
 		ReadChan:         &serialDevice.readChan,
 		PacketChan:       make(chan *Packet),
 		savePacketChan:   make(chan *Packet),
+		deltaFFT:         make(chan [2]int),
 		ResetChan:        make(chan bool),
 		quitGenTest:      make(chan bool),
 		quitDecodeStream: make(chan bool),
@@ -245,10 +246,9 @@ func (mc *MindControl) DecodeStream() {
 }
 
 func (mc *MindControl) GenTestPackets() {
-	//var gain float64 = 24
 	var on bool
-  var val float64
-  var i float64 = 0.0
+	var val float64
+	var i float64 = 0.0
 	for {
 		select {
 		case <-mc.quitGenTest:
@@ -257,25 +257,8 @@ func (mc *MindControl) GenTestPackets() {
 			on = <-mc.genToggleChan
 		default:
 			if on {
-        /*
-        sign := func() int32 {
-          if rand.Int31() > (1 << 30) {
-            return -1
-          } else {
-            return 1
-          }
-        }
-				packet.Chan1 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
-				packet.Chan2 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
-				packet.Chan3 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
-				packet.Chan4 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
-				packet.Chan5 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
-				packet.Chan6 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
-				packet.Chan7 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
-				packet.Chan8 = scaleToMicroVolts(rand.Int31n(1<<23)*sign(), gain)
-        */
-        i = i + 0.04
-        val = math.Sin(2.0 * math.Pi * i)
+				i = i + 0.04
+				val = math.Sin(2.0 * math.Pi * i)
 				packet := NewPacket()
 				packet.Chan1 = val
 				packet.Chan2 = val
@@ -306,25 +289,34 @@ func NewMessage(name string, payload map[string][]float64) *Message {
 }
 
 func (mc *MindControl) sendPackets() {
-	var m *Message
+	var (
+		m *Message
+		i int
+	)
+
+	FFTSize := 250
+	FFTFreq := 50
+
 	last_second := time.Now().UnixNano()
 	second := time.Now().UnixNano()
-	var i int
 
 	filterDesign, err := gofidlib.NewFilterDesign("BpBe4/1-50", samplesPerSecond)
 	if err != nil {
 		log.Fatal("Error creating filter design:", err)
 	}
-  filter := make([]*gofidlib.Filter, 8)
-  for j := 0; j < 8; j++ {
-    filter[j] = gofidlib.NewFilter(filterDesign)
-  }
+
+	filter := make([]*gofidlib.Filter, 8)
+	for j := 0; j < 8; j++ {
+		filter[j] = gofidlib.NewFilter(filterDesign)
+	}
+
 	defer func() {
 		filterDesign.Free()
 		for j := 0; j < 8; j++ {
-			filter[j].Close()
+			filter[j].Free()
 		}
 	}()
+
 	pbFFT := NewPacketBatcher(FFTSize)
 	pbRaw := NewPacketBatcher(RawMsgSize)
 
@@ -332,8 +324,10 @@ func (mc *MindControl) sendPackets() {
 		select {
 		case <-mc.quitSendPackets:
 			return
+		case arr := <-mc.deltaFFT:
+			FFTSize = arr[0]
+			FFTFreq = arr[1]
 		case p := <-mc.PacketChan:
-
 			if mc.saving == true {
 				mc.savePacketChan <- p
 			}
@@ -350,19 +344,21 @@ func (mc *MindControl) sendPackets() {
 			pbFFT.packets[i%FFTSize] = p
 			pbRaw.packets[i%RawMsgSize] = p
 
-			if i%RawMsgSize == RawMsgSize - 1 {
+			if i%RawMsgSize == RawMsgSize-1 {
 				pbRaw.batch()
 				m = NewMessage("raw", pbRaw.Chans)
 				mc.broadcast <- m
 				pbRaw = NewPacketBatcher(RawMsgSize)
 			}
-			if i%FFTSize == FFTSize - 1 {
+
+			if i > FFTSize && i%FFTFreq == FFTFreq-1 {
 				pbFFT.batch()
 				pbFFT.setFFT()
 				m = NewMessage("fft", pbFFT.FFTs)
 				mc.broadcast <- m
-				pbFFT = NewPacketBatcher(FFTSize)
+				// pbFFT = NewPacketBatcher(FFTSize)
 			}
+
 			if i%250 == 0 {
 				second = time.Now().UnixNano()
 				log.Println(second-last_second, "nanoseconds have elapsed between 250 samples.")

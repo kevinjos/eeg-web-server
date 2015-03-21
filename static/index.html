@@ -222,6 +222,17 @@
                 </select>
               </form>
             </div> 
+
+            <div id="deltafft" align="left">
+              <form id="deltafftints">
+                FFT Size:<input type="text" id="fftsize" value="250">
+                <br>
+                FFT Frequency:<input type="text" id="fftfreq" value="50">
+                <br>
+                <input type="button" id="deltafftupdate" value="DeltaFFT" href="http://{{$}}/fft/">
+              </form>
+            </div>
+
           </div>
         </div>
       </div>
@@ -309,6 +320,5 @@
 	<script src="/js/main.js"></script>
 	<script src="/js/handler.js"></script>
 	<script src="/js/timeseries.js"></script>
-	<script src="/js/app.js"></script>
   </body>
 </html>

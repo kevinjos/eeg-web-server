@@ -187,3 +187,24 @@ func (handle *Handle) testHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	handle.mc.genToggleChan <- true
 }
+
+func (handle *Handle) fftHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	path := r.URL.Path
+	p := strings.Split(path, "/")
+	data := strings.Split(p[2], "&")
+	fftsize, err := strconv.Atoi(data[0])
+	if err != nil {
+		http.Error(w, "Bad Request, only integers understood", 400)
+		return
+	}
+	fftfreq, err := strconv.Atoi(data[1])
+	if err != nil {
+		http.Error(w, "Bad Request, only integers understood", 400)
+		return
+	}
+	handle.mc.deltaFFT <- [2]int{fftsize, fftfreq}
+}

@@ -32,7 +32,6 @@ const (
 	readTimeout      = 100 * time.Millisecond
 	readBufferSize   = 1024 * 1024
 	baud             = 115200
-	FFTSize          = samplesPerSecond
 	RawMsgSize       = 20
 )
 
@@ -40,15 +39,18 @@ var location string = "/dev/ttyUSB0"
 
 func main() {
 	h := NewHub()
+	defer h.Close()
+
 	shutdown := make(chan bool, 1)
-	defer func() {
-		h.Close()
-	}()
+
 	mc := NewMindControl(h.broadcast, shutdown)
+
 	handle := NewHandle(mc)
+
 	http.HandleFunc("/ws", h.wsPacketHandler)
 	http.HandleFunc("/", handle.rootHandler)
 	http.HandleFunc("/x/", handle.commandHandler)
+	http.HandleFunc("/fft/", handle.fftHandler)
 	http.HandleFunc("/open", handle.openHandler)
 	http.HandleFunc("/reset", handle.resetHandler)
 	http.HandleFunc("/start", handle.startHandler)

@@ -47,20 +47,6 @@ func NewPacketBatcher(size int) *PacketBatcher {
 	}
 }
 
-func (pb *PacketBatcher) dft(input []float64) []float64 {
-	data := fftw.NewArray(pb.size)
-	for idx, val := range input {
-		data.Set(idx, complex(val, 0.0))
-	}
-	forward := fftw.NewPlan(data, data, fftw.Forward, fftw.Estimate)
-	forward.Execute()
-	data_out := make([]float64, pb.size)
-	for idx, val := range data.Elems {
-		data_out[idx] = cmplx.Abs(val)
-	}
-	return data_out
-}
-
 func (pb *PacketBatcher) batch() {
 	for i, p := range pb.packets {
 		pb.Chans["Chan1"][i] = p.Chan1
@@ -72,9 +58,10 @@ func (pb *PacketBatcher) batch() {
 		pb.Chans["Chan7"][i] = p.Chan7
 		pb.Chans["Chan8"][i] = p.Chan8
 	}
-	pb.deleteEmptyChans()
+	// pb.deleteEmptyChans()
 }
 
+/*
 func (pb *PacketBatcher) deleteEmptyChans() {
 	for key, val := range pb.Chans {
 		for i, v := range val {
@@ -87,12 +74,27 @@ func (pb *PacketBatcher) deleteEmptyChans() {
 		}
 	}
 }
+*/
 
 func (pb *PacketBatcher) setFFT() {
 	for key, val := range pb.Chans {
 		mirrored := pb.dft(val)
 		pb.FFTs[key] = mirrored[:len(mirrored)/2]
 	}
+}
+
+func (pb *PacketBatcher) dft(input []float64) []float64 {
+	data := fftw.NewArray(pb.size)
+	for idx, val := range input {
+		data.Set(idx, complex(val, 0.0))
+	}
+	forward := fftw.NewPlan(data, data, fftw.Forward, fftw.Estimate)
+	forward.Execute()
+	data_out := make([]float64, pb.size)
+	for idx, val := range data.Elems {
+		data_out[idx] = cmplx.Abs(val)
+	}
+	return data_out
 }
 
 type Packet struct {
