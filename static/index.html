@@ -16,33 +16,22 @@
 					if (rdata == null) {
 						return
 					} else if (rdata.Name == "raw") {
-            if (rdata.Payload.Chan1) {
-                updaterawchan1(rdata.Payload.Chan1);
-            }
-            if (rdata.Payload.Chan2) {
-                updaterawchan2(rdata.Payload.Chan2);
-            }
-            if (rdata.Payload.Chan3) {
-                updaterawchan3(rdata.Payload.Chan3);
-            }
-            if (rdata.Payload.Chan4) {
-                updaterawchan4(rdata.Payload.Chan4);
-            }
-            if (rdata.Payload.Chan5) {
-                updaterawchan5(rdata.Payload.Chan5);
-            }
-            if (rdata.Payload.Chan6) {
-                updaterawchan6(rdata.Payload.Chan6);
-            }
-            if (rdata.Payload.Chan7) {
-                updaterawchan7(rdata.Payload.Chan7);
-            }
-            if (rdata.Payload.Chan8) {
-                updaterawchan8(rdata.Payload.Chan8);
-            }
+						for(var chan=1; chan<9; chan++) {
+							window['updaterawchan'+chan](rdata.Payload['Chan'+chan])
+						}
 					} else if (rdata.Name == "fft") {
-						bciVis.updateData(rdata.Payload.Chan1.slice(1, 15));
-            console.log(rdata.Payload.Chan1.slice(1,25))
+						for(var chan=1; chan<9; chan++) {
+							for(var i=window.fft1.shape[0]-1; i>=0; i--) {
+								for(var j=window.fft1.shape[1]-1; j>=0; j--) {
+									if(j==0){
+										window['fft'+chan].set(i, j, rdata.Payload['Chan'+chan][i])
+									} else {
+										window['fft'+chan].set(i, j, window['fft'+chan].get(i, j-1))
+									}
+								}
+							}
+							window['surface'+chan].update({'field': window['fft'+chan]})
+						}
 					}
         }
         conn.onopen = function(evt) {
@@ -56,41 +45,6 @@
         conn.close();
       });
     </script>
-		<script id="vertShader" type="x-shader/x-vertex">
-			uniform mat4 modelMat;
-			uniform mat4 viewMat;
-			uniform mat4 projMat;
-
-			attribute vec3 pos;
-
-			varying vec4 worldPos;
-			varying highp float voltage;
-			void main() {
-				voltage = pos.y;
-				vec3 realPos = vec3(pos.x, log(voltage / 1000000.0 + 0.0000001), pos.z);
-				worldPos = modelMat * vec4(realPos, 1);
-				gl_Position = projMat * viewMat * worldPos;
-			}
-
-		</script>
-
-		<script id="fragShader" type="x-shader/x-fragment">
-
-			varying mediump vec4 worldPos;
-			varying highp float voltage;
-
-			void main() {
-				lowp float mag = 1.0/(1.0 + 1.0 / voltage);
-				//gl_FragColor = vec4(1.0 - mag, mag, 0.0, 1.0);
-				//gl_FragColor.xy = normalize(gl_FragColor.xy);
-				gl_FragColor = vec4(1.0 - worldPos.x, 0, worldPos.x, 1);
-				gl_FragColor.xyz *= 1.0 / max(gl_FragColor.x, max (gl_FragColor.y, gl_FragColor.z));
-				//highp float lineSpacing = float(int(log(voltage))) * 10.0;
-				//if (mod(voltage, lineSpacing) < lineSpacing / 10.0) gl_FragColor = vec4(0, 0, 0, 1);
-				if (mod(worldPos.y, 0.1) < 0.01) gl_FragColor = vec4(0, 0, 0, 1);
-
-			}
-		</script>
   </head>
 
   <body>
@@ -113,43 +67,17 @@
       <div class="container-fluid">
         <h1>Visualize your brain waves.</h1>
         <p>Graph your brain waves using the Open-BCI Go Server.</p>
-        <a href="#">Get started</a>
         <div class="row">
           <div class="col-md-8">
             <div class="canvas">
-
-              <canvas id="canvas" width="750" height="500"></canvas>
-              
-              <script id="vertShader" type="x-shader/x-vertex">
-                uniform mat4 modelMat;
-                uniform mat4 viewMat;
-                uniform mat4 projMat;
-                
-                attribute vec3 pos;
-                
-                varying vec4 worldPos;
-                void main() {
-                  worldPos = modelMat * vec4(pos, 1);
-                  gl_Position = projMat * viewMat * worldPos;
-                }
-                
-              </script>
-              
-              <script id="fragShader" type="x-shader/x-fragment">
-                
-                varying mediump vec4 worldPos;
-                
-                void main() {
-                  gl_FragColor = vec4(1.0 - worldPos.y, worldPos.y, 0.0, 1.0);
-                  gl_FragColor.xy = normalize(gl_FragColor.xy);
-                  
-                }
-              </script>
-              
-              <script src="/js/webgl-debug.js"></script>
-              <script src="/js/gl-matrix-min.js"></script>
-              <script src="/js/geometry.js"></script>
-              <script src="/js/main.js"></script>
+              <canvas id="fft1canvas" width="200" height="200"></canvas>
+              <canvas id="fft2canvas" width="200" height="200"></canvas>
+              <canvas id="fft3canvas" width="200" height="200"></canvas>
+              <canvas id="fft4canvas" width="200" height="200"></canvas><br>
+              <canvas id="fft5canvas" width="200" height="200"></canvas>
+              <canvas id="fft6canvas" width="200" height="200"></canvas>
+              <canvas id="fft7canvas" width="200" height="200"></canvas>
+              <canvas id="fft8canvas" width="200" height="200"></canvas>
             </div>
           </div>
 
@@ -315,10 +243,8 @@
       </div>
     </div>
 
-	<script src="/js/gl-matrix-min.js"></script>
-	<script src="/js/geometry.js"></script>
-	<script src="/js/main.js"></script>
 	<script src="/js/handler.js"></script>
 	<script src="/js/timeseries.js"></script>
+	<script src="/js/bundle.js"></script>
   </body>
 </html>

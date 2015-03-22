@@ -12,7 +12,7 @@
 
 .jumbotron {
   font-family: 'Shift', sans-serif;
-  background-image:url('http://upload.wikimedia.org/wikipedia/commons/8/88/NeuronGolgi.png');
+  background-image:url('./NeuronGolgi.png');
   height: 750px;
   background-repeat: no-repeat;
   background-size: cover;

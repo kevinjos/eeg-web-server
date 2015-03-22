@@ -290,7 +290,6 @@ func NewMessage(name string, payload map[string][]float64) *Message {
 
 func (mc *MindControl) sendPackets() {
 	var (
-		m *Message
 		i int
 	)
 
@@ -327,6 +326,8 @@ func (mc *MindControl) sendPackets() {
 		case arr := <-mc.deltaFFT:
 			FFTSize = arr[0]
 			FFTFreq = arr[1]
+			pbFFT = NewPacketBatcher(FFTSize)
+			i = 0
 		case p := <-mc.PacketChan:
 			if mc.saving == true {
 				mc.savePacketChan <- p
@@ -346,17 +347,14 @@ func (mc *MindControl) sendPackets() {
 
 			if i%RawMsgSize == RawMsgSize-1 {
 				pbRaw.batch()
-				m = NewMessage("raw", pbRaw.Chans)
-				mc.broadcast <- m
-				pbRaw = NewPacketBatcher(RawMsgSize)
+				mc.broadcast <- NewMessage("raw", pbRaw.Chans)
+				//pbRaw = NewPacketBatcher(RawMsgSize)
 			}
 
 			if i > FFTSize && i%FFTFreq == FFTFreq-1 {
 				pbFFT.batch()
 				pbFFT.setFFT()
-				m = NewMessage("fft", pbFFT.FFTs)
-				mc.broadcast <- m
-				// pbFFT = NewPacketBatcher(FFTSize)
+				mc.broadcast <- NewMessage("fft", pbFFT.FFTs)
 			}
 
 			if i%250 == 0 {

@@ -17,7 +17,7 @@ var rawScope = {
         .orient("bottom");
 
     var y = d3.scale.linear()
-        .domain([-200.0, 200.0])
+        .domain([-2.0, 2.0])
         .range([height, 0])
         .clamp(true);
 
@@ -69,10 +69,9 @@ var rawScope = {
       .attr("d", line)
       .attr("transform", null)
       .transition()
-        //.duration(4)
+        //.duration(20)
         //.ease("linear")
         //.attr("transform", "translate(" + x(-1) + ",0)")
-      // pop the old data point off the front
     }
   },
 

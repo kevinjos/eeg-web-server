@@ -32,7 +32,7 @@ const (
 	readTimeout      = 100 * time.Millisecond
 	readBufferSize   = 1024 * 1024
 	baud             = 115200
-	RawMsgSize       = 20
+	RawMsgSize       = 30
 )
 
 var location string = "/dev/ttyUSB0"
