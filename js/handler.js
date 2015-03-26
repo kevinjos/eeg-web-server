@@ -42,8 +42,9 @@ jQuery(document).ready(function() {
 
 	jQuery("#deltafft #deltafftupdate").click(function() {
 		var fftsize = $("form#deltafftints #fftsize").val()
-		window.updatenewsize(fftsize)
+		//window.updatenewsize(fftsize)
 		var fftfreq = $("form#deltafftints #fftfreq").val()
+    //considering tracking state of delta bins via fftfreq
 		var postURL = $(this).attr('href') + fftsize + "&" + fftfreq
 		jQuery.ajax({	type:"POST",
 									url:postURL
