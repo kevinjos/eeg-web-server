@@ -1,1644 +1,4 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-/*!
- * The buffer module from node.js, for the browser.
- *
- * @author   Feross Aboukhadijeh <feross@feross.org> <http://feross.org>
- * @license  MIT
- */
-
-var base64 = require('base64-js')
-var ieee754 = require('ieee754')
-var isArray = require('is-array')
-
-exports.Buffer = Buffer
-exports.SlowBuffer = SlowBuffer
-exports.INSPECT_MAX_BYTES = 50
-Buffer.poolSize = 8192 // not used by this implementation
-
-var kMaxLength = 0x3fffffff
-var rootParent = {}
-
-/**
- * If `Buffer.TYPED_ARRAY_SUPPORT`:
- *   === true    Use Uint8Array implementation (fastest)
- *   === false   Use Object implementation (most compatible, even IE6)
- *
- * Browsers that support typed arrays are IE 10+, Firefox 4+, Chrome 7+, Safari 5.1+,
- * Opera 11.6+, iOS 4.2+.
- *
- * Note:
- *
- * - Implementation must support adding new properties to `Uint8Array` instances.
- *   Firefox 4-29 lacked support, fixed in Firefox 30+.
- *   See: https://bugzilla.mozilla.org/show_bug.cgi?id=695438.
- *
- *  - Chrome 9-10 is missing the `TypedArray.prototype.subarray` function.
- *
- *  - IE10 has a broken `TypedArray.prototype.subarray` function which returns arrays of
- *    incorrect length in some situations.
- *
- * We detect these buggy browsers and set `Buffer.TYPED_ARRAY_SUPPORT` to `false` so they will
- * get the Object implementation, which is slower but will work correctly.
- */
-Buffer.TYPED_ARRAY_SUPPORT = (function () {
-  try {
-    var buf = new ArrayBuffer(0)
-    var arr = new Uint8Array(buf)
-    arr.foo = function () { return 42 }
-    return arr.foo() === 42 && // typed array instances can be augmented
-        typeof arr.subarray === 'function' && // chrome 9-10 lack `subarray`
-        new Uint8Array(1).subarray(1, 1).byteLength === 0 // ie10 has broken `subarray`
-  } catch (e) {
-    return false
-  }
-})()
-
-/**
- * Class: Buffer
- * =============
- *
- * The Buffer constructor returns instances of `Uint8Array` that are augmented
- * with function properties for all the node `Buffer` API functions. We use
- * `Uint8Array` so that square bracket notation works as expected -- it returns
- * a single octet.
- *
- * By augmenting the instances, we can avoid modifying the `Uint8Array`
- * prototype.
- */
-function Buffer (subject, encoding) {
-  var self = this
-  if (!(self instanceof Buffer)) return new Buffer(subject, encoding)
-
-  var type = typeof subject
-  var length
-
-  if (type === 'number') {
-    length = +subject
-  } else if (type === 'string') {
-    length = Buffer.byteLength(subject, encoding)
-  } else if (type === 'object' && subject !== null) {
-    // assume object is array-like
-    if (subject.type === 'Buffer' && isArray(subject.data)) subject = subject.data
-    length = +subject.length
-  } else {
-    throw new TypeError('must start with number, buffer, array or string')
-  }
-
-  if (length > kMaxLength) {
-    throw new RangeError('Attempt to allocate Buffer larger than maximum size: 0x' +
-      kMaxLength.toString(16) + ' bytes')
-  }
-
-  if (length < 0) length = 0
-  else length >>>= 0 // coerce to uint32
-
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    // Preferred: Return an augmented `Uint8Array` instance for best performance
-    self = Buffer._augment(new Uint8Array(length)) // eslint-disable-line consistent-this
-  } else {
-    // Fallback: Return THIS instance of Buffer (created by `new`)
-    self.length = length
-    self._isBuffer = true
-  }
-
-  var i
-  if (Buffer.TYPED_ARRAY_SUPPORT && typeof subject.byteLength === 'number') {
-    // Speed optimization -- use set if we're copying from a typed array
-    self._set(subject)
-  } else if (isArrayish(subject)) {
-    // Treat array-ish objects as a byte array
-    if (Buffer.isBuffer(subject)) {
-      for (i = 0; i < length; i++) {
-        self[i] = subject.readUInt8(i)
-      }
-    } else {
-      for (i = 0; i < length; i++) {
-        self[i] = ((subject[i] % 256) + 256) % 256
-      }
-    }
-  } else if (type === 'string') {
-    self.write(subject, 0, encoding)
-  } else if (type === 'number' && !Buffer.TYPED_ARRAY_SUPPORT) {
-    for (i = 0; i < length; i++) {
-      self[i] = 0
-    }
-  }
-
-  if (length > 0 && length <= Buffer.poolSize) self.parent = rootParent
-
-  return self
-}
-
-function SlowBuffer (subject, encoding) {
-  if (!(this instanceof SlowBuffer)) return new SlowBuffer(subject, encoding)
-
-  var buf = new Buffer(subject, encoding)
-  delete buf.parent
-  return buf
-}
-
-Buffer.isBuffer = function isBuffer (b) {
-  return !!(b != null && b._isBuffer)
-}
-
-Buffer.compare = function compare (a, b) {
-  if (!Buffer.isBuffer(a) || !Buffer.isBuffer(b)) {
-    throw new TypeError('Arguments must be Buffers')
-  }
-
-  if (a === b) return 0
-
-  var x = a.length
-  var y = b.length
-  for (var i = 0, len = Math.min(x, y); i < len && a[i] === b[i]; i++) {}
-  if (i !== len) {
-    x = a[i]
-    y = b[i]
-  }
-  if (x < y) return -1
-  if (y < x) return 1
-  return 0
-}
-
-Buffer.isEncoding = function isEncoding (encoding) {
-  switch (String(encoding).toLowerCase()) {
-    case 'hex':
-    case 'utf8':
-    case 'utf-8':
-    case 'ascii':
-    case 'binary':
-    case 'base64':
-    case 'raw':
-    case 'ucs2':
-    case 'ucs-2':
-    case 'utf16le':
-    case 'utf-16le':
-      return true
-    default:
-      return false
-  }
-}
-
-Buffer.concat = function concat (list, totalLength) {
-  if (!isArray(list)) throw new TypeError('list argument must be an Array of Buffers.')
-
-  if (list.length === 0) {
-    return new Buffer(0)
-  } else if (list.length === 1) {
-    return list[0]
-  }
-
-  var i
-  if (totalLength === undefined) {
-    totalLength = 0
-    for (i = 0; i < list.length; i++) {
-      totalLength += list[i].length
-    }
-  }
-
-  var buf = new Buffer(totalLength)
-  var pos = 0
-  for (i = 0; i < list.length; i++) {
-    var item = list[i]
-    item.copy(buf, pos)
-    pos += item.length
-  }
-  return buf
-}
-
-Buffer.byteLength = function byteLength (str, encoding) {
-  var ret
-  str = str + ''
-  switch (encoding || 'utf8') {
-    case 'ascii':
-    case 'binary':
-    case 'raw':
-      ret = str.length
-      break
-    case 'ucs2':
-    case 'ucs-2':
-    case 'utf16le':
-    case 'utf-16le':
-      ret = str.length * 2
-      break
-    case 'hex':
-      ret = str.length >>> 1
-      break
-    case 'utf8':
-    case 'utf-8':
-      ret = utf8ToBytes(str).length
-      break
-    case 'base64':
-      ret = base64ToBytes(str).length
-      break
-    default:
-      ret = str.length
-  }
-  return ret
-}
-
-// pre-set for values that may exist in the future
-Buffer.prototype.length = undefined
-Buffer.prototype.parent = undefined
-
-// toString(encoding, start=0, end=buffer.length)
-Buffer.prototype.toString = function toString (encoding, start, end) {
-  var loweredCase = false
-
-  start = start >>> 0
-  end = end === undefined || end === Infinity ? this.length : end >>> 0
-
-  if (!encoding) encoding = 'utf8'
-  if (start < 0) start = 0
-  if (end > this.length) end = this.length
-  if (end <= start) return ''
-
-  while (true) {
-    switch (encoding) {
-      case 'hex':
-        return hexSlice(this, start, end)
-
-      case 'utf8':
-      case 'utf-8':
-        return utf8Slice(this, start, end)
-
-      case 'ascii':
-        return asciiSlice(this, start, end)
-
-      case 'binary':
-        return binarySlice(this, start, end)
-
-      case 'base64':
-        return base64Slice(this, start, end)
-
-      case 'ucs2':
-      case 'ucs-2':
-      case 'utf16le':
-      case 'utf-16le':
-        return utf16leSlice(this, start, end)
-
-      default:
-        if (loweredCase) throw new TypeError('Unknown encoding: ' + encoding)
-        encoding = (encoding + '').toLowerCase()
-        loweredCase = true
-    }
-  }
-}
-
-Buffer.prototype.equals = function equals (b) {
-  if (!Buffer.isBuffer(b)) throw new TypeError('Argument must be a Buffer')
-  if (this === b) return true
-  return Buffer.compare(this, b) === 0
-}
-
-Buffer.prototype.inspect = function inspect () {
-  var str = ''
-  var max = exports.INSPECT_MAX_BYTES
-  if (this.length > 0) {
-    str = this.toString('hex', 0, max).match(/.{2}/g).join(' ')
-    if (this.length > max) str += ' ... '
-  }
-  return '<Buffer ' + str + '>'
-}
-
-Buffer.prototype.compare = function compare (b) {
-  if (!Buffer.isBuffer(b)) throw new TypeError('Argument must be a Buffer')
-  if (this === b) return 0
-  return Buffer.compare(this, b)
-}
-
-Buffer.prototype.indexOf = function indexOf (val, byteOffset) {
-  if (byteOffset > 0x7fffffff) byteOffset = 0x7fffffff
-  else if (byteOffset < -0x80000000) byteOffset = -0x80000000
-  byteOffset >>= 0
-
-  if (this.length === 0) return -1
-  if (byteOffset >= this.length) return -1
-
-  // Negative offsets start from the end of the buffer
-  if (byteOffset < 0) byteOffset = Math.max(this.length + byteOffset, 0)
-
-  if (typeof val === 'string') {
-    if (val.length === 0) return -1 // special case: looking for empty string always fails
-    return String.prototype.indexOf.call(this, val, byteOffset)
-  }
-  if (Buffer.isBuffer(val)) {
-    return arrayIndexOf(this, val, byteOffset)
-  }
-  if (typeof val === 'number') {
-    if (Buffer.TYPED_ARRAY_SUPPORT && Uint8Array.prototype.indexOf === 'function') {
-      return Uint8Array.prototype.indexOf.call(this, val, byteOffset)
-    }
-    return arrayIndexOf(this, [ val ], byteOffset)
-  }
-
-  function arrayIndexOf (arr, val, byteOffset) {
-    var foundIndex = -1
-    for (var i = 0; byteOffset + i < arr.length; i++) {
-      if (arr[byteOffset + i] === val[foundIndex === -1 ? 0 : i - foundIndex]) {
-        if (foundIndex === -1) foundIndex = i
-        if (i - foundIndex + 1 === val.length) return byteOffset + foundIndex
-      } else {
-        foundIndex = -1
-      }
-    }
-    return -1
-  }
-
-  throw new TypeError('val must be string, number or Buffer')
-}
-
-// `get` will be removed in Node 0.13+
-Buffer.prototype.get = function get (offset) {
-  console.log('.get() is deprecated. Access using array indexes instead.')
-  return this.readUInt8(offset)
-}
-
-// `set` will be removed in Node 0.13+
-Buffer.prototype.set = function set (v, offset) {
-  console.log('.set() is deprecated. Access using array indexes instead.')
-  return this.writeUInt8(v, offset)
-}
-
-function hexWrite (buf, string, offset, length) {
-  offset = Number(offset) || 0
-  var remaining = buf.length - offset
-  if (!length) {
-    length = remaining
-  } else {
-    length = Number(length)
-    if (length > remaining) {
-      length = remaining
-    }
-  }
-
-  // must be an even number of digits
-  var strLen = string.length
-  if (strLen % 2 !== 0) throw new Error('Invalid hex string')
-
-  if (length > strLen / 2) {
-    length = strLen / 2
-  }
-  for (var i = 0; i < length; i++) {
-    var parsed = parseInt(string.substr(i * 2, 2), 16)
-    if (isNaN(parsed)) throw new Error('Invalid hex string')
-    buf[offset + i] = parsed
-  }
-  return i
-}
-
-function utf8Write (buf, string, offset, length) {
-  var charsWritten = blitBuffer(utf8ToBytes(string, buf.length - offset), buf, offset, length)
-  return charsWritten
-}
-
-function asciiWrite (buf, string, offset, length) {
-  var charsWritten = blitBuffer(asciiToBytes(string), buf, offset, length)
-  return charsWritten
-}
-
-function binaryWrite (buf, string, offset, length) {
-  return asciiWrite(buf, string, offset, length)
-}
-
-function base64Write (buf, string, offset, length) {
-  var charsWritten = blitBuffer(base64ToBytes(string), buf, offset, length)
-  return charsWritten
-}
-
-function utf16leWrite (buf, string, offset, length) {
-  var charsWritten = blitBuffer(utf16leToBytes(string, buf.length - offset), buf, offset, length)
-  return charsWritten
-}
-
-Buffer.prototype.write = function write (string, offset, length, encoding) {
-  // Support both (string, offset, length, encoding)
-  // and the legacy (string, encoding, offset, length)
-  if (isFinite(offset)) {
-    if (!isFinite(length)) {
-      encoding = length
-      length = undefined
-    }
-  } else {  // legacy
-    var swap = encoding
-    encoding = offset
-    offset = length
-    length = swap
-  }
-
-  offset = Number(offset) || 0
-
-  if (length < 0 || offset < 0 || offset > this.length) {
-    throw new RangeError('attempt to write outside buffer bounds')
-  }
-
-  var remaining = this.length - offset
-  if (!length) {
-    length = remaining
-  } else {
-    length = Number(length)
-    if (length > remaining) {
-      length = remaining
-    }
-  }
-  encoding = String(encoding || 'utf8').toLowerCase()
-
-  var ret
-  switch (encoding) {
-    case 'hex':
-      ret = hexWrite(this, string, offset, length)
-      break
-    case 'utf8':
-    case 'utf-8':
-      ret = utf8Write(this, string, offset, length)
-      break
-    case 'ascii':
-      ret = asciiWrite(this, string, offset, length)
-      break
-    case 'binary':
-      ret = binaryWrite(this, string, offset, length)
-      break
-    case 'base64':
-      ret = base64Write(this, string, offset, length)
-      break
-    case 'ucs2':
-    case 'ucs-2':
-    case 'utf16le':
-    case 'utf-16le':
-      ret = utf16leWrite(this, string, offset, length)
-      break
-    default:
-      throw new TypeError('Unknown encoding: ' + encoding)
-  }
-  return ret
-}
-
-Buffer.prototype.toJSON = function toJSON () {
-  return {
-    type: 'Buffer',
-    data: Array.prototype.slice.call(this._arr || this, 0)
-  }
-}
-
-function base64Slice (buf, start, end) {
-  if (start === 0 && end === buf.length) {
-    return base64.fromByteArray(buf)
-  } else {
-    return base64.fromByteArray(buf.slice(start, end))
-  }
-}
-
-function utf8Slice (buf, start, end) {
-  var res = ''
-  var tmp = ''
-  end = Math.min(buf.length, end)
-
-  for (var i = start; i < end; i++) {
-    if (buf[i] <= 0x7F) {
-      res += decodeUtf8Char(tmp) + String.fromCharCode(buf[i])
-      tmp = ''
-    } else {
-      tmp += '%' + buf[i].toString(16)
-    }
-  }
-
-  return res + decodeUtf8Char(tmp)
-}
-
-function asciiSlice (buf, start, end) {
-  var ret = ''
-  end = Math.min(buf.length, end)
-
-  for (var i = start; i < end; i++) {
-    ret += String.fromCharCode(buf[i] & 0x7F)
-  }
-  return ret
-}
-
-function binarySlice (buf, start, end) {
-  var ret = ''
-  end = Math.min(buf.length, end)
-
-  for (var i = start; i < end; i++) {
-    ret += String.fromCharCode(buf[i])
-  }
-  return ret
-}
-
-function hexSlice (buf, start, end) {
-  var len = buf.length
-
-  if (!start || start < 0) start = 0
-  if (!end || end < 0 || end > len) end = len
-
-  var out = ''
-  for (var i = start; i < end; i++) {
-    out += toHex(buf[i])
-  }
-  return out
-}
-
-function utf16leSlice (buf, start, end) {
-  var bytes = buf.slice(start, end)
-  var res = ''
-  for (var i = 0; i < bytes.length; i += 2) {
-    res += String.fromCharCode(bytes[i] + bytes[i + 1] * 256)
-  }
-  return res
-}
-
-Buffer.prototype.slice = function slice (start, end) {
-  var len = this.length
-  start = ~~start
-  end = end === undefined ? len : ~~end
-
-  if (start < 0) {
-    start += len
-    if (start < 0) start = 0
-  } else if (start > len) {
-    start = len
-  }
-
-  if (end < 0) {
-    end += len
-    if (end < 0) end = 0
-  } else if (end > len) {
-    end = len
-  }
-
-  if (end < start) end = start
-
-  var newBuf
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    newBuf = Buffer._augment(this.subarray(start, end))
-  } else {
-    var sliceLen = end - start
-    newBuf = new Buffer(sliceLen, undefined)
-    for (var i = 0; i < sliceLen; i++) {
-      newBuf[i] = this[i + start]
-    }
-  }
-
-  if (newBuf.length) newBuf.parent = this.parent || this
-
-  return newBuf
-}
-
-/*
- * Need to make sure that buffer isn't trying to write out of bounds.
- */
-function checkOffset (offset, ext, length) {
-  if ((offset % 1) !== 0 || offset < 0) throw new RangeError('offset is not uint')
-  if (offset + ext > length) throw new RangeError('Trying to access beyond buffer length')
-}
-
-Buffer.prototype.readUIntLE = function readUIntLE (offset, byteLength, noAssert) {
-  offset = offset >>> 0
-  byteLength = byteLength >>> 0
-  if (!noAssert) checkOffset(offset, byteLength, this.length)
-
-  var val = this[offset]
-  var mul = 1
-  var i = 0
-  while (++i < byteLength && (mul *= 0x100)) {
-    val += this[offset + i] * mul
-  }
-
-  return val
-}
-
-Buffer.prototype.readUIntBE = function readUIntBE (offset, byteLength, noAssert) {
-  offset = offset >>> 0
-  byteLength = byteLength >>> 0
-  if (!noAssert) {
-    checkOffset(offset, byteLength, this.length)
-  }
-
-  var val = this[offset + --byteLength]
-  var mul = 1
-  while (byteLength > 0 && (mul *= 0x100)) {
-    val += this[offset + --byteLength] * mul
-  }
-
-  return val
-}
-
-Buffer.prototype.readUInt8 = function readUInt8 (offset, noAssert) {
-  if (!noAssert) checkOffset(offset, 1, this.length)
-  return this[offset]
-}
-
-Buffer.prototype.readUInt16LE = function readUInt16LE (offset, noAssert) {
-  if (!noAssert) checkOffset(offset, 2, this.length)
-  return this[offset] | (this[offset + 1] << 8)
-}
-
-Buffer.prototype.readUInt16BE = function readUInt16BE (offset, noAssert) {
-  if (!noAssert) checkOffset(offset, 2, this.length)
-  return (this[offset] << 8) | this[offset + 1]
-}
-
-Buffer.prototype.readUInt32LE = function readUInt32LE (offset, noAssert) {
-  if (!noAssert) checkOffset(offset, 4, this.length)
-
-  return ((this[offset]) |
-      (this[offset + 1] << 8) |
-      (this[offset + 2] << 16)) +
-      (this[offset + 3] * 0x1000000)
-}
-
-Buffer.prototype.readUInt32BE = function readUInt32BE (offset, noAssert) {
-  if (!noAssert) checkOffset(offset, 4, this.length)
-
-  return (this[offset] * 0x1000000) +
-    ((this[offset + 1] << 16) |
-    (this[offset + 2] << 8) |
-    this[offset + 3])
-}
-
-Buffer.prototype.readIntLE = function readIntLE (offset, byteLength, noAssert) {
-  offset = offset >>> 0
-  byteLength = byteLength >>> 0
-  if (!noAssert) checkOffset(offset, byteLength, this.length)
-
-  var val = this[offset]
-  var mul = 1
-  var i = 0
-  while (++i < byteLength && (mul *= 0x100)) {
-    val += this[offset + i] * mul
-  }
-  mul *= 0x80
-
-  if (val >= mul) val -= Math.pow(2, 8 * byteLength)
-
-  return val
-}
-
-Buffer.prototype.readIntBE = function readIntBE (offset, byteLength, noAssert) {
-  offset = offset >>> 0
-  byteLength = byteLength >>> 0
-  if (!noAssert) checkOffset(offset, byteLength, this.length)
-
-  var i = byteLength
-  var mul = 1
-  var val = this[offset + --i]
-  while (i > 0 && (mul *= 0x100)) {
-    val += this[offset + --i] * mul
-  }
-  mul *= 0x80
-
-  if (val >= mul) val -= Math.pow(2, 8 * byteLength)
-
-  return val
-}
-
-Buffer.prototype.readInt8 = function readInt8 (offset, noAssert) {
-  if (!noAssert) checkOffset(offset, 1, this.length)
-  if (!(this[offset] & 0x80)) return (this[offset])
-  return ((0xff - this[offset] + 1) * -1)
-}
-
-Buffer.prototype.readInt16LE = function readInt16LE (offset, noAssert) {
-  if (!noAssert) checkOffset(offset, 2, this.length)
-  var val = this[offset] | (this[offset + 1] << 8)
-  return (val & 0x8000) ? val | 0xFFFF0000 : val
-}
-
-Buffer.prototype.readInt16BE = function readInt16BE (offset, noAssert) {
-  if (!noAssert) checkOffset(offset, 2, this.length)
-  var val = this[offset + 1] | (this[offset] << 8)
-  return (val & 0x8000) ? val | 0xFFFF0000 : val
-}
-
-Buffer.prototype.readInt32LE = function readInt32LE (offset, noAssert) {
-  if (!noAssert) checkOffset(offset, 4, this.length)
-
-  return (this[offset]) |
-    (this[offset + 1] << 8) |
-    (this[offset + 2] << 16) |
-    (this[offset + 3] << 24)
-}
-
-Buffer.prototype.readInt32BE = function readInt32BE (offset, noAssert) {
-  if (!noAssert) checkOffset(offset, 4, this.length)
-
-  return (this[offset] << 24) |
-    (this[offset + 1] << 16) |
-    (this[offset + 2] << 8) |
-    (this[offset + 3])
-}
-
-Buffer.prototype.readFloatLE = function readFloatLE (offset, noAssert) {
-  if (!noAssert) checkOffset(offset, 4, this.length)
-  return ieee754.read(this, offset, true, 23, 4)
-}
-
-Buffer.prototype.readFloatBE = function readFloatBE (offset, noAssert) {
-  if (!noAssert) checkOffset(offset, 4, this.length)
-  return ieee754.read(this, offset, false, 23, 4)
-}
-
-Buffer.prototype.readDoubleLE = function readDoubleLE (offset, noAssert) {
-  if (!noAssert) checkOffset(offset, 8, this.length)
-  return ieee754.read(this, offset, true, 52, 8)
-}
-
-Buffer.prototype.readDoubleBE = function readDoubleBE (offset, noAssert) {
-  if (!noAssert) checkOffset(offset, 8, this.length)
-  return ieee754.read(this, offset, false, 52, 8)
-}
-
-function checkInt (buf, value, offset, ext, max, min) {
-  if (!Buffer.isBuffer(buf)) throw new TypeError('buffer must be a Buffer instance')
-  if (value > max || value < min) throw new RangeError('value is out of bounds')
-  if (offset + ext > buf.length) throw new RangeError('index out of range')
-}
-
-Buffer.prototype.writeUIntLE = function writeUIntLE (value, offset, byteLength, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  byteLength = byteLength >>> 0
-  if (!noAssert) checkInt(this, value, offset, byteLength, Math.pow(2, 8 * byteLength), 0)
-
-  var mul = 1
-  var i = 0
-  this[offset] = value & 0xFF
-  while (++i < byteLength && (mul *= 0x100)) {
-    this[offset + i] = (value / mul) >>> 0 & 0xFF
-  }
-
-  return offset + byteLength
-}
-
-Buffer.prototype.writeUIntBE = function writeUIntBE (value, offset, byteLength, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  byteLength = byteLength >>> 0
-  if (!noAssert) checkInt(this, value, offset, byteLength, Math.pow(2, 8 * byteLength), 0)
-
-  var i = byteLength - 1
-  var mul = 1
-  this[offset + i] = value & 0xFF
-  while (--i >= 0 && (mul *= 0x100)) {
-    this[offset + i] = (value / mul) >>> 0 & 0xFF
-  }
-
-  return offset + byteLength
-}
-
-Buffer.prototype.writeUInt8 = function writeUInt8 (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert) checkInt(this, value, offset, 1, 0xff, 0)
-  if (!Buffer.TYPED_ARRAY_SUPPORT) value = Math.floor(value)
-  this[offset] = value
-  return offset + 1
-}
-
-function objectWriteUInt16 (buf, value, offset, littleEndian) {
-  if (value < 0) value = 0xffff + value + 1
-  for (var i = 0, j = Math.min(buf.length - offset, 2); i < j; i++) {
-    buf[offset + i] = (value & (0xff << (8 * (littleEndian ? i : 1 - i)))) >>>
-      (littleEndian ? i : 1 - i) * 8
-  }
-}
-
-Buffer.prototype.writeUInt16LE = function writeUInt16LE (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert) checkInt(this, value, offset, 2, 0xffff, 0)
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = value
-    this[offset + 1] = (value >>> 8)
-  } else {
-    objectWriteUInt16(this, value, offset, true)
-  }
-  return offset + 2
-}
-
-Buffer.prototype.writeUInt16BE = function writeUInt16BE (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert) checkInt(this, value, offset, 2, 0xffff, 0)
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = (value >>> 8)
-    this[offset + 1] = value
-  } else {
-    objectWriteUInt16(this, value, offset, false)
-  }
-  return offset + 2
-}
-
-function objectWriteUInt32 (buf, value, offset, littleEndian) {
-  if (value < 0) value = 0xffffffff + value + 1
-  for (var i = 0, j = Math.min(buf.length - offset, 4); i < j; i++) {
-    buf[offset + i] = (value >>> (littleEndian ? i : 3 - i) * 8) & 0xff
-  }
-}
-
-Buffer.prototype.writeUInt32LE = function writeUInt32LE (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert) checkInt(this, value, offset, 4, 0xffffffff, 0)
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset + 3] = (value >>> 24)
-    this[offset + 2] = (value >>> 16)
-    this[offset + 1] = (value >>> 8)
-    this[offset] = value
-  } else {
-    objectWriteUInt32(this, value, offset, true)
-  }
-  return offset + 4
-}
-
-Buffer.prototype.writeUInt32BE = function writeUInt32BE (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert) checkInt(this, value, offset, 4, 0xffffffff, 0)
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = (value >>> 24)
-    this[offset + 1] = (value >>> 16)
-    this[offset + 2] = (value >>> 8)
-    this[offset + 3] = value
-  } else {
-    objectWriteUInt32(this, value, offset, false)
-  }
-  return offset + 4
-}
-
-Buffer.prototype.writeIntLE = function writeIntLE (value, offset, byteLength, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert) {
-    checkInt(
-      this, value, offset, byteLength,
-      Math.pow(2, 8 * byteLength - 1) - 1,
-      -Math.pow(2, 8 * byteLength - 1)
-    )
-  }
-
-  var i = 0
-  var mul = 1
-  var sub = value < 0 ? 1 : 0
-  this[offset] = value & 0xFF
-  while (++i < byteLength && (mul *= 0x100)) {
-    this[offset + i] = ((value / mul) >> 0) - sub & 0xFF
-  }
-
-  return offset + byteLength
-}
-
-Buffer.prototype.writeIntBE = function writeIntBE (value, offset, byteLength, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert) {
-    checkInt(
-      this, value, offset, byteLength,
-      Math.pow(2, 8 * byteLength - 1) - 1,
-      -Math.pow(2, 8 * byteLength - 1)
-    )
-  }
-
-  var i = byteLength - 1
-  var mul = 1
-  var sub = value < 0 ? 1 : 0
-  this[offset + i] = value & 0xFF
-  while (--i >= 0 && (mul *= 0x100)) {
-    this[offset + i] = ((value / mul) >> 0) - sub & 0xFF
-  }
-
-  return offset + byteLength
-}
-
-Buffer.prototype.writeInt8 = function writeInt8 (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert) checkInt(this, value, offset, 1, 0x7f, -0x80)
-  if (!Buffer.TYPED_ARRAY_SUPPORT) value = Math.floor(value)
-  if (value < 0) value = 0xff + value + 1
-  this[offset] = value
-  return offset + 1
-}
-
-Buffer.prototype.writeInt16LE = function writeInt16LE (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert) checkInt(this, value, offset, 2, 0x7fff, -0x8000)
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = value
-    this[offset + 1] = (value >>> 8)
-  } else {
-    objectWriteUInt16(this, value, offset, true)
-  }
-  return offset + 2
-}
-
-Buffer.prototype.writeInt16BE = function writeInt16BE (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert) checkInt(this, value, offset, 2, 0x7fff, -0x8000)
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = (value >>> 8)
-    this[offset + 1] = value
-  } else {
-    objectWriteUInt16(this, value, offset, false)
-  }
-  return offset + 2
-}
-
-Buffer.prototype.writeInt32LE = function writeInt32LE (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert) checkInt(this, value, offset, 4, 0x7fffffff, -0x80000000)
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = value
-    this[offset + 1] = (value >>> 8)
-    this[offset + 2] = (value >>> 16)
-    this[offset + 3] = (value >>> 24)
-  } else {
-    objectWriteUInt32(this, value, offset, true)
-  }
-  return offset + 4
-}
-
-Buffer.prototype.writeInt32BE = function writeInt32BE (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert) checkInt(this, value, offset, 4, 0x7fffffff, -0x80000000)
-  if (value < 0) value = 0xffffffff + value + 1
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = (value >>> 24)
-    this[offset + 1] = (value >>> 16)
-    this[offset + 2] = (value >>> 8)
-    this[offset + 3] = value
-  } else {
-    objectWriteUInt32(this, value, offset, false)
-  }
-  return offset + 4
-}
-
-function checkIEEE754 (buf, value, offset, ext, max, min) {
-  if (value > max || value < min) throw new RangeError('value is out of bounds')
-  if (offset + ext > buf.length) throw new RangeError('index out of range')
-  if (offset < 0) throw new RangeError('index out of range')
-}
-
-function writeFloat (buf, value, offset, littleEndian, noAssert) {
-  if (!noAssert) {
-    checkIEEE754(buf, value, offset, 4, 3.4028234663852886e+38, -3.4028234663852886e+38)
-  }
-  ieee754.write(buf, value, offset, littleEndian, 23, 4)
-  return offset + 4
-}
-
-Buffer.prototype.writeFloatLE = function writeFloatLE (value, offset, noAssert) {
-  return writeFloat(this, value, offset, true, noAssert)
-}
-
-Buffer.prototype.writeFloatBE = function writeFloatBE (value, offset, noAssert) {
-  return writeFloat(this, value, offset, false, noAssert)
-}
-
-function writeDouble (buf, value, offset, littleEndian, noAssert) {
-  if (!noAssert) {
-    checkIEEE754(buf, value, offset, 8, 1.7976931348623157E+308, -1.7976931348623157E+308)
-  }
-  ieee754.write(buf, value, offset, littleEndian, 52, 8)
-  return offset + 8
-}
-
-Buffer.prototype.writeDoubleLE = function writeDoubleLE (value, offset, noAssert) {
-  return writeDouble(this, value, offset, true, noAssert)
-}
-
-Buffer.prototype.writeDoubleBE = function writeDoubleBE (value, offset, noAssert) {
-  return writeDouble(this, value, offset, false, noAssert)
-}
-
-// copy(targetBuffer, targetStart=0, sourceStart=0, sourceEnd=buffer.length)
-Buffer.prototype.copy = function copy (target, target_start, start, end) {
-  if (!start) start = 0
-  if (!end && end !== 0) end = this.length
-  if (target_start >= target.length) target_start = target.length
-  if (!target_start) target_start = 0
-  if (end > 0 && end < start) end = start
-
-  // Copy 0 bytes; we're done
-  if (end === start) return 0
-  if (target.length === 0 || this.length === 0) return 0
-
-  // Fatal error conditions
-  if (target_start < 0) {
-    throw new RangeError('targetStart out of bounds')
-  }
-  if (start < 0 || start >= this.length) throw new RangeError('sourceStart out of bounds')
-  if (end < 0) throw new RangeError('sourceEnd out of bounds')
-
-  // Are we oob?
-  if (end > this.length) end = this.length
-  if (target.length - target_start < end - start) {
-    end = target.length - target_start + start
-  }
-
-  var len = end - start
-
-  if (len < 1000 || !Buffer.TYPED_ARRAY_SUPPORT) {
-    for (var i = 0; i < len; i++) {
-      target[i + target_start] = this[i + start]
-    }
-  } else {
-    target._set(this.subarray(start, start + len), target_start)
-  }
-
-  return len
-}
-
-// fill(value, start=0, end=buffer.length)
-Buffer.prototype.fill = function fill (value, start, end) {
-  if (!value) value = 0
-  if (!start) start = 0
-  if (!end) end = this.length
-
-  if (end < start) throw new RangeError('end < start')
-
-  // Fill 0 bytes; we're done
-  if (end === start) return
-  if (this.length === 0) return
-
-  if (start < 0 || start >= this.length) throw new RangeError('start out of bounds')
-  if (end < 0 || end > this.length) throw new RangeError('end out of bounds')
-
-  var i
-  if (typeof value === 'number') {
-    for (i = start; i < end; i++) {
-      this[i] = value
-    }
-  } else {
-    var bytes = utf8ToBytes(value.toString())
-    var len = bytes.length
-    for (i = start; i < end; i++) {
-      this[i] = bytes[i % len]
-    }
-  }
-
-  return this
-}
-
-/**
- * Creates a new `ArrayBuffer` with the *copied* memory of the buffer instance.
- * Added in Node 0.12. Only available in browsers that support ArrayBuffer.
- */
-Buffer.prototype.toArrayBuffer = function toArrayBuffer () {
-  if (typeof Uint8Array !== 'undefined') {
-    if (Buffer.TYPED_ARRAY_SUPPORT) {
-      return (new Buffer(this)).buffer
-    } else {
-      var buf = new Uint8Array(this.length)
-      for (var i = 0, len = buf.length; i < len; i += 1) {
-        buf[i] = this[i]
-      }
-      return buf.buffer
-    }
-  } else {
-    throw new TypeError('Buffer.toArrayBuffer not supported in this browser')
-  }
-}
-
-// HELPER FUNCTIONS
-// ================
-
-var BP = Buffer.prototype
-
-/**
- * Augment a Uint8Array *instance* (not the Uint8Array class!) with Buffer methods
- */
-Buffer._augment = function _augment (arr) {
-  arr.constructor = Buffer
-  arr._isBuffer = true
-
-  // save reference to original Uint8Array set method before overwriting
-  arr._set = arr.set
-
-  // deprecated, will be removed in node 0.13+
-  arr.get = BP.get
-  arr.set = BP.set
-
-  arr.write = BP.write
-  arr.toString = BP.toString
-  arr.toLocaleString = BP.toString
-  arr.toJSON = BP.toJSON
-  arr.equals = BP.equals
-  arr.compare = BP.compare
-  arr.indexOf = BP.indexOf
-  arr.copy = BP.copy
-  arr.slice = BP.slice
-  arr.readUIntLE = BP.readUIntLE
-  arr.readUIntBE = BP.readUIntBE
-  arr.readUInt8 = BP.readUInt8
-  arr.readUInt16LE = BP.readUInt16LE
-  arr.readUInt16BE = BP.readUInt16BE
-  arr.readUInt32LE = BP.readUInt32LE
-  arr.readUInt32BE = BP.readUInt32BE
-  arr.readIntLE = BP.readIntLE
-  arr.readIntBE = BP.readIntBE
-  arr.readInt8 = BP.readInt8
-  arr.readInt16LE = BP.readInt16LE
-  arr.readInt16BE = BP.readInt16BE
-  arr.readInt32LE = BP.readInt32LE
-  arr.readInt32BE = BP.readInt32BE
-  arr.readFloatLE = BP.readFloatLE
-  arr.readFloatBE = BP.readFloatBE
-  arr.readDoubleLE = BP.readDoubleLE
-  arr.readDoubleBE = BP.readDoubleBE
-  arr.writeUInt8 = BP.writeUInt8
-  arr.writeUIntLE = BP.writeUIntLE
-  arr.writeUIntBE = BP.writeUIntBE
-  arr.writeUInt16LE = BP.writeUInt16LE
-  arr.writeUInt16BE = BP.writeUInt16BE
-  arr.writeUInt32LE = BP.writeUInt32LE
-  arr.writeUInt32BE = BP.writeUInt32BE
-  arr.writeIntLE = BP.writeIntLE
-  arr.writeIntBE = BP.writeIntBE
-  arr.writeInt8 = BP.writeInt8
-  arr.writeInt16LE = BP.writeInt16LE
-  arr.writeInt16BE = BP.writeInt16BE
-  arr.writeInt32LE = BP.writeInt32LE
-  arr.writeInt32BE = BP.writeInt32BE
-  arr.writeFloatLE = BP.writeFloatLE
-  arr.writeFloatBE = BP.writeFloatBE
-  arr.writeDoubleLE = BP.writeDoubleLE
-  arr.writeDoubleBE = BP.writeDoubleBE
-  arr.fill = BP.fill
-  arr.inspect = BP.inspect
-  arr.toArrayBuffer = BP.toArrayBuffer
-
-  return arr
-}
-
-var INVALID_BASE64_RE = /[^+\/0-9A-z\-]/g
-
-function base64clean (str) {
-  // Node strips out invalid characters like \n and \t from the string, base64-js does not
-  str = stringtrim(str).replace(INVALID_BASE64_RE, '')
-  // Node converts strings with length < 2 to ''
-  if (str.length < 2) return ''
-  // Node allows for non-padded base64 strings (missing trailing ===), base64-js does not
-  while (str.length % 4 !== 0) {
-    str = str + '='
-  }
-  return str
-}
-
-function stringtrim (str) {
-  if (str.trim) return str.trim()
-  return str.replace(/^\s+|\s+$/g, '')
-}
-
-function isArrayish (subject) {
-  return isArray(subject) || Buffer.isBuffer(subject) ||
-      subject && typeof subject === 'object' &&
-      typeof subject.length === 'number'
-}
-
-function toHex (n) {
-  if (n < 16) return '0' + n.toString(16)
-  return n.toString(16)
-}
-
-function utf8ToBytes (string, units) {
-  units = units || Infinity
-  var codePoint
-  var length = string.length
-  var leadSurrogate = null
-  var bytes = []
-  var i = 0
-
-  for (; i < length; i++) {
-    codePoint = string.charCodeAt(i)
-
-    // is surrogate component
-    if (codePoint > 0xD7FF && codePoint < 0xE000) {
-      // last char was a lead
-      if (leadSurrogate) {
-        // 2 leads in a row
-        if (codePoint < 0xDC00) {
-          if ((units -= 3) > -1) bytes.push(0xEF, 0xBF, 0xBD)
-          leadSurrogate = codePoint
-          continue
-        } else {
-          // valid surrogate pair
-          codePoint = leadSurrogate - 0xD800 << 10 | codePoint - 0xDC00 | 0x10000
-          leadSurrogate = null
-        }
-      } else {
-        // no lead yet
-
-        if (codePoint > 0xDBFF) {
-          // unexpected trail
-          if ((units -= 3) > -1) bytes.push(0xEF, 0xBF, 0xBD)
-          continue
-        } else if (i + 1 === length) {
-          // unpaired lead
-          if ((units -= 3) > -1) bytes.push(0xEF, 0xBF, 0xBD)
-          continue
-        } else {
-          // valid lead
-          leadSurrogate = codePoint
-          continue
-        }
-      }
-    } else if (leadSurrogate) {
-      // valid bmp char, but last char was a lead
-      if ((units -= 3) > -1) bytes.push(0xEF, 0xBF, 0xBD)
-      leadSurrogate = null
-    }
-
-    // encode utf8
-    if (codePoint < 0x80) {
-      if ((units -= 1) < 0) break
-      bytes.push(codePoint)
-    } else if (codePoint < 0x800) {
-      if ((units -= 2) < 0) break
-      bytes.push(
-        codePoint >> 0x6 | 0xC0,
-        codePoint & 0x3F | 0x80
-      )
-    } else if (codePoint < 0x10000) {
-      if ((units -= 3) < 0) break
-      bytes.push(
-        codePoint >> 0xC | 0xE0,
-        codePoint >> 0x6 & 0x3F | 0x80,
-        codePoint & 0x3F | 0x80
-      )
-    } else if (codePoint < 0x200000) {
-      if ((units -= 4) < 0) break
-      bytes.push(
-        codePoint >> 0x12 | 0xF0,
-        codePoint >> 0xC & 0x3F | 0x80,
-        codePoint >> 0x6 & 0x3F | 0x80,
-        codePoint & 0x3F | 0x80
-      )
-    } else {
-      throw new Error('Invalid code point')
-    }
-  }
-
-  return bytes
-}
-
-function asciiToBytes (str) {
-  var byteArray = []
-  for (var i = 0; i < str.length; i++) {
-    // Node's code seems to be doing this and not & 0x7F..
-    byteArray.push(str.charCodeAt(i) & 0xFF)
-  }
-  return byteArray
-}
-
-function utf16leToBytes (str, units) {
-  var c, hi, lo
-  var byteArray = []
-  for (var i = 0; i < str.length; i++) {
-    if ((units -= 2) < 0) break
-
-    c = str.charCodeAt(i)
-    hi = c >> 8
-    lo = c % 256
-    byteArray.push(lo)
-    byteArray.push(hi)
-  }
-
-  return byteArray
-}
-
-function base64ToBytes (str) {
-  return base64.toByteArray(base64clean(str))
-}
-
-function blitBuffer (src, dst, offset, length) {
-  for (var i = 0; i < length; i++) {
-    if ((i + offset >= dst.length) || (i >= src.length)) break
-    dst[i + offset] = src[i]
-  }
-  return i
-}
-
-function decodeUtf8Char (str) {
-  try {
-    return decodeURIComponent(str)
-  } catch (err) {
-    return String.fromCharCode(0xFFFD) // UTF 8 invalid char
-  }
-}
-
-},{"base64-js":2,"ieee754":3,"is-array":4}],2:[function(require,module,exports){
-var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-
-;(function (exports) {
-	'use strict';
-
-  var Arr = (typeof Uint8Array !== 'undefined')
-    ? Uint8Array
-    : Array
-
-	var PLUS   = '+'.charCodeAt(0)
-	var SLASH  = '/'.charCodeAt(0)
-	var NUMBER = '0'.charCodeAt(0)
-	var LOWER  = 'a'.charCodeAt(0)
-	var UPPER  = 'A'.charCodeAt(0)
-	var PLUS_URL_SAFE = '-'.charCodeAt(0)
-	var SLASH_URL_SAFE = '_'.charCodeAt(0)
-
-	function decode (elt) {
-		var code = elt.charCodeAt(0)
-		if (code === PLUS ||
-		    code === PLUS_URL_SAFE)
-			return 62 // '+'
-		if (code === SLASH ||
-		    code === SLASH_URL_SAFE)
-			return 63 // '/'
-		if (code < NUMBER)
-			return -1 //no match
-		if (code < NUMBER + 10)
-			return code - NUMBER + 26 + 26
-		if (code < UPPER + 26)
-			return code - UPPER
-		if (code < LOWER + 26)
-			return code - LOWER + 26
-	}
-
-	function b64ToByteArray (b64) {
-		var i, j, l, tmp, placeHolders, arr
-
-		if (b64.length % 4 > 0) {
-			throw new Error('Invalid string. Length must be a multiple of 4')
-		}
-
-		// the number of equal signs (place holders)
-		// if there are two placeholders, than the two characters before it
-		// represent one byte
-		// if there is only one, then the three characters before it represent 2 bytes
-		// this is just a cheap hack to not do indexOf twice
-		var len = b64.length
-		placeHolders = '=' === b64.charAt(len - 2) ? 2 : '=' === b64.charAt(len - 1) ? 1 : 0
-
-		// base64 is 4/3 + up to two characters of the original data
-		arr = new Arr(b64.length * 3 / 4 - placeHolders)
-
-		// if there are placeholders, only get up to the last complete 4 chars
-		l = placeHolders > 0 ? b64.length - 4 : b64.length
-
-		var L = 0
-
-		function push (v) {
-			arr[L++] = v
-		}
-
-		for (i = 0, j = 0; i < l; i += 4, j += 3) {
-			tmp = (decode(b64.charAt(i)) << 18) | (decode(b64.charAt(i + 1)) << 12) | (decode(b64.charAt(i + 2)) << 6) | decode(b64.charAt(i + 3))
-			push((tmp & 0xFF0000) >> 16)
-			push((tmp & 0xFF00) >> 8)
-			push(tmp & 0xFF)
-		}
-
-		if (placeHolders === 2) {
-			tmp = (decode(b64.charAt(i)) << 2) | (decode(b64.charAt(i + 1)) >> 4)
-			push(tmp & 0xFF)
-		} else if (placeHolders === 1) {
-			tmp = (decode(b64.charAt(i)) << 10) | (decode(b64.charAt(i + 1)) << 4) | (decode(b64.charAt(i + 2)) >> 2)
-			push((tmp >> 8) & 0xFF)
-			push(tmp & 0xFF)
-		}
-
-		return arr
-	}
-
-	function uint8ToBase64 (uint8) {
-		var i,
-			extraBytes = uint8.length % 3, // if we have 1 byte left, pad 2 bytes
-			output = "",
-			temp, length
-
-		function encode (num) {
-			return lookup.charAt(num)
-		}
-
-		function tripletToBase64 (num) {
-			return encode(num >> 18 & 0x3F) + encode(num >> 12 & 0x3F) + encode(num >> 6 & 0x3F) + encode(num & 0x3F)
-		}
-
-		// go through the array every three bytes, we'll deal with trailing stuff later
-		for (i = 0, length = uint8.length - extraBytes; i < length; i += 3) {
-			temp = (uint8[i] << 16) + (uint8[i + 1] << 8) + (uint8[i + 2])
-			output += tripletToBase64(temp)
-		}
-
-		// pad the end with zeros, but make sure to not forget the extra bytes
-		switch (extraBytes) {
-			case 1:
-				temp = uint8[uint8.length - 1]
-				output += encode(temp >> 2)
-				output += encode((temp << 4) & 0x3F)
-				output += '=='
-				break
-			case 2:
-				temp = (uint8[uint8.length - 2] << 8) + (uint8[uint8.length - 1])
-				output += encode(temp >> 10)
-				output += encode((temp >> 4) & 0x3F)
-				output += encode((temp << 2) & 0x3F)
-				output += '='
-				break
-		}
-
-		return output
-	}
-
-	exports.toByteArray = b64ToByteArray
-	exports.fromByteArray = uint8ToBase64
-}(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
-
-},{}],3:[function(require,module,exports){
-exports.read = function(buffer, offset, isLE, mLen, nBytes) {
-  var e, m,
-      eLen = nBytes * 8 - mLen - 1,
-      eMax = (1 << eLen) - 1,
-      eBias = eMax >> 1,
-      nBits = -7,
-      i = isLE ? (nBytes - 1) : 0,
-      d = isLE ? -1 : 1,
-      s = buffer[offset + i];
-
-  i += d;
-
-  e = s & ((1 << (-nBits)) - 1);
-  s >>= (-nBits);
-  nBits += eLen;
-  for (; nBits > 0; e = e * 256 + buffer[offset + i], i += d, nBits -= 8);
-
-  m = e & ((1 << (-nBits)) - 1);
-  e >>= (-nBits);
-  nBits += mLen;
-  for (; nBits > 0; m = m * 256 + buffer[offset + i], i += d, nBits -= 8);
-
-  if (e === 0) {
-    e = 1 - eBias;
-  } else if (e === eMax) {
-    return m ? NaN : ((s ? -1 : 1) * Infinity);
-  } else {
-    m = m + Math.pow(2, mLen);
-    e = e - eBias;
-  }
-  return (s ? -1 : 1) * m * Math.pow(2, e - mLen);
-};
-
-exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
-  var e, m, c,
-      eLen = nBytes * 8 - mLen - 1,
-      eMax = (1 << eLen) - 1,
-      eBias = eMax >> 1,
-      rt = (mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0),
-      i = isLE ? 0 : (nBytes - 1),
-      d = isLE ? 1 : -1,
-      s = value < 0 || (value === 0 && 1 / value < 0) ? 1 : 0;
-
-  value = Math.abs(value);
-
-  if (isNaN(value) || value === Infinity) {
-    m = isNaN(value) ? 1 : 0;
-    e = eMax;
-  } else {
-    e = Math.floor(Math.log(value) / Math.LN2);
-    if (value * (c = Math.pow(2, -e)) < 1) {
-      e--;
-      c *= 2;
-    }
-    if (e + eBias >= 1) {
-      value += rt / c;
-    } else {
-      value += rt * Math.pow(2, 1 - eBias);
-    }
-    if (value * c >= 2) {
-      e++;
-      c /= 2;
-    }
-
-    if (e + eBias >= eMax) {
-      m = 0;
-      e = eMax;
-    } else if (e + eBias >= 1) {
-      m = (value * c - 1) * Math.pow(2, mLen);
-      e = e + eBias;
-    } else {
-      m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen);
-      e = 0;
-    }
-  }
-
-  for (; mLen >= 8; buffer[offset + i] = m & 0xff, i += d, m /= 256, mLen -= 8);
-
-  e = (e << mLen) | m;
-  eLen += mLen;
-  for (; eLen > 0; buffer[offset + i] = e & 0xff, i += d, e /= 256, eLen -= 8);
-
-  buffer[offset + i - d] |= s * 128;
-};
-
-},{}],4:[function(require,module,exports){
-
-/**
- * isArray
- */
-
-var isArray = Array.isArray;
-
-/**
- * toString
- */
-
-var str = Object.prototype.toString;
-
-/**
- * Whether or not the given `val`
- * is an array.
- *
- * example:
- *
- *        isArray([]);
- *        // > true
- *        isArray(arguments);
- *        // > false
- *        isArray('');
- *        // > false
- *
- * @param {mixed} val
- * @return {bool}
- */
-
-module.exports = isArray || function (val) {
-  return !! val && '[object Array]' == str.call(val);
-};
-
-},{}],5:[function(require,module,exports){
-// shim for using process in browser
-
-var process = module.exports = {};
-var queue = [];
-var draining = false;
-
-function drainQueue() {
-    if (draining) {
-        return;
-    }
-    draining = true;
-    var currentQueue;
-    var len = queue.length;
-    while(len) {
-        currentQueue = queue;
-        queue = [];
-        var i = -1;
-        while (++i < len) {
-            currentQueue[i]();
-        }
-        len = queue.length;
-    }
-    draining = false;
-}
-process.nextTick = function (fun) {
-    queue.push(fun);
-    if (!draining) {
-        setTimeout(drainQueue, 0);
-    }
-};
-
-process.title = 'browser';
-process.browser = true;
-process.env = {};
-process.argv = [];
-process.version = ''; // empty string to avoid regexp issues
-process.versions = {};
-
-function noop() {}
-
-process.on = noop;
-process.addListener = noop;
-process.once = noop;
-process.off = noop;
-process.removeListener = noop;
-process.removeAllListeners = noop;
-process.emit = noop;
-
-process.binding = function (name) {
-    throw new Error('process.binding is not supported');
-};
-
-// TODO(shtylman)
-process.cwd = function () { return '/' };
-process.chdir = function (dir) {
-    throw new Error('process.chdir is not supported');
-};
-process.umask = function() { return 0; };
-
-},{}],6:[function(require,module,exports){
 var glslify = require("glslify");
 var createShader = require("gl-shader");
 var compositeShader = require("glslify/simple-adapter.js")("\n#define GLSLIFY 1\n\nattribute vec2 position;\nvarying vec2 uv;\nvoid main() {\n  uv = position;\n  gl_Position = vec4(position, 0, 1);\n}", "\n#define GLSLIFY 1\n\nprecision mediump float;\nuniform sampler2D accumBuffer;\nvarying vec2 uv;\nvoid main() {\n  vec4 accum = texture2D(accumBuffer, 0.5 * (uv + 1.0));\n  gl_FragColor = min(vec4(1, 1, 1, 1), accum);\n}", [{"name":"accumBuffer","type":"sampler2D"}], [{"name":"position","type":"vec2"}]);
@@ -1646,7 +6,7 @@ var compositeShader = require("glslify/simple-adapter.js")("\n#define GLSLIFY 1\
 module.exports = function(gl) {
     return createShader(gl, compositeShader);
 };
-},{"gl-shader":141,"glslify":169,"glslify/simple-adapter.js":175}],7:[function(require,module,exports){
+},{"gl-shader":136,"glslify":164,"glslify/simple-adapter.js":170}],2:[function(require,module,exports){
 "use strict"
 
 var pool = require("typedarray-pool")
@@ -1802,7 +162,7 @@ function createBuffer(gl, data, type, usage) {
 }
 
 module.exports = createBuffer
-},{"ndarray":252,"ndarray-ops":8,"typedarray-pool":15,"webglew":17}],8:[function(require,module,exports){
+},{"ndarray":247,"ndarray-ops":3,"typedarray-pool":10,"webglew":12}],3:[function(require,module,exports){
 "use strict"
 
 var compile = require("cwise-compiler")
@@ -2265,7 +625,7 @@ exports.equals = compile({
 
 
 
-},{"cwise-compiler":9}],9:[function(require,module,exports){
+},{"cwise-compiler":4}],4:[function(require,module,exports){
 "use strict"
 
 var createThunk = require("./lib/thunk.js")
@@ -2373,7 +733,7 @@ function compileCwise(user_args) {
 
 module.exports = compileCwise
 
-},{"./lib/thunk.js":11}],10:[function(require,module,exports){
+},{"./lib/thunk.js":6}],5:[function(require,module,exports){
 "use strict"
 
 var uniq = require("uniq")
@@ -2661,7 +1021,7 @@ function generateCWiseOp(proc, typesig) {
   return f()
 }
 module.exports = generateCWiseOp
-},{"uniq":12}],11:[function(require,module,exports){
+},{"uniq":7}],6:[function(require,module,exports){
 "use strict"
 
 var compile = require("./compile.js")
@@ -2710,7 +1070,7 @@ function createThunk(proc) {
 
 module.exports = createThunk
 
-},{"./compile.js":10}],12:[function(require,module,exports){
+},{"./compile.js":5}],7:[function(require,module,exports){
 "use strict"
 
 function unique_pred(list, compare) {
@@ -2769,7 +1129,7 @@ function unique(list, compare, sorted) {
 
 module.exports = unique
 
-},{}],13:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 /**
  * Bit twiddling hacks for JavaScript.
  *
@@ -2975,7 +1335,7 @@ exports.nextCombination = function(v) {
 }
 
 
-},{}],14:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 "use strict"
 
 function dupe_array(count, value, i) {
@@ -3025,7 +1385,7 @@ function dupe(count, value) {
 }
 
 module.exports = dupe
-},{}],15:[function(require,module,exports){
+},{}],10:[function(require,module,exports){
 (function (global,Buffer){
 'use strict'
 
@@ -3242,7 +1602,7 @@ exports.clearCache = function clearCache() {
   }
 }
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("buffer").Buffer)
-},{"bit-twiddle":13,"buffer":1,"dup":14}],16:[function(require,module,exports){
+},{"bit-twiddle":8,"buffer":250,"dup":9}],11:[function(require,module,exports){
 // Copyright (C) 2011 Google Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -3929,7 +2289,7 @@ exports.clearCache = function clearCache() {
   }
 })();
 
-},{}],17:[function(require,module,exports){
+},{}],12:[function(require,module,exports){
 'use strict'
 
 var weakMap = typeof WeakMap === 'undefined' ? require('weak-map') : WeakMap
@@ -3971,7 +2331,7 @@ function initWebGLEW(gl) {
   return extensions
 }
 module.exports = initWebGLEW
-},{"weak-map":16}],18:[function(require,module,exports){
+},{"weak-map":11}],13:[function(require,module,exports){
 "use strict"
 
 function doBind(gl, elements, attributes) {
@@ -4026,7 +2386,7 @@ function doBind(gl, elements, attributes) {
 }
 
 module.exports = doBind
-},{}],19:[function(require,module,exports){
+},{}],14:[function(require,module,exports){
 "use strict"
 
 var bindAttribs = require("./do-bind.js")
@@ -4066,7 +2426,7 @@ function createVAOEmulated(gl) {
 }
 
 module.exports = createVAOEmulated
-},{"./do-bind.js":18}],20:[function(require,module,exports){
+},{"./do-bind.js":13}],15:[function(require,module,exports){
 "use strict"
 
 var bindAttribs = require("./do-bind.js")
@@ -4154,11 +2514,11 @@ function createVAONative(gl, ext) {
 }
 
 module.exports = createVAONative
-},{"./do-bind.js":18}],21:[function(require,module,exports){
-arguments[4][16][0].apply(exports,arguments)
-},{"dup":16}],22:[function(require,module,exports){
-arguments[4][17][0].apply(exports,arguments)
-},{"dup":17,"weak-map":21}],23:[function(require,module,exports){
+},{"./do-bind.js":13}],16:[function(require,module,exports){
+arguments[4][11][0].apply(exports,arguments)
+},{"dup":11}],17:[function(require,module,exports){
+arguments[4][12][0].apply(exports,arguments)
+},{"dup":12,"weak-map":16}],18:[function(require,module,exports){
 "use strict"
 
 var webglew = require("webglew")
@@ -4178,7 +2538,7 @@ function createVAO(gl, attributes, elements, elementsType) {
 }
 
 module.exports = createVAO
-},{"./lib/vao-emulated.js":19,"./lib/vao-native.js":20,"webglew":22}],24:[function(require,module,exports){
+},{"./lib/vao-emulated.js":14,"./lib/vao-native.js":15,"webglew":17}],19:[function(require,module,exports){
 /* (The MIT License)
  *
  * Copyright (c) 2012 Brandon Benvie <http://bbenvie.com>
@@ -4420,7 +2780,7 @@ void function(global, undefined_, undefined){
     global.WeakMap.createStorage = createStorage;
 }((0, eval)('this'));
 
-},{}],25:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 'use strict'
 
 var weakMap      = typeof WeakMap === 'undefined' ? require('weakmap') : WeakMap
@@ -4448,7 +2808,7 @@ function createABigTriangle(gl) {
 }
 
 module.exports = createABigTriangle
-},{"gl-buffer":7,"gl-vao":23,"weakmap":24}],26:[function(require,module,exports){
+},{"gl-buffer":2,"gl-vao":18,"weakmap":19}],21:[function(require,module,exports){
 'use strict'
 
 module.exports = createAxes
@@ -4761,28 +3121,10 @@ proto.isOpaque = function() {
 }
 
 proto.isTransparent = function() {
-  return this.backgroundEnable[0] ||
-         this.backgroundEnable[1] ||
-         this.backgroundEnable[2]
+  return false
 }
 
-proto.drawTransparent = function(params) {
-  var cubeEnable = CUBE_ENABLE
-  for(var i=0; i<3; ++i) {
-    if(this.backgroundEnable[i]) {
-      cubeEnable[i] = cubeAxis[i]
-    } else {
-      cubeEnable[i] = 0
-    }
-  }
-  this._background.draw(
-    params.model || identity, 
-    params.view || identity, 
-    params.projection || identity, 
-    this.bounds, 
-    cubeEnable,
-    this.backgroundColor)
-}
+proto.drawTransparent = function(params) {}
 
 
 var PRIMAL_MINOR  = [0,0,0]
@@ -4821,6 +3163,24 @@ proto.draw = function(params) {
 
   //Set up state parameters
   var gl = this.gl
+
+  //Draw background first
+  var cubeEnable = CUBE_ENABLE
+  for(var i=0; i<3; ++i) {
+    if(this.backgroundEnable[i]) {
+      cubeEnable[i] = cubeAxis[i]
+    } else {
+      cubeEnable[i] = 0
+    }
+  }
+
+  this._background.draw(
+    model, 
+    view, 
+    projection, 
+    bounds, 
+    cubeEnable,
+    this.backgroundColor)
 
   //Draw lines
   this._lines.bind(
@@ -4960,7 +3320,7 @@ function createAxes(gl, options) {
   axes.update(options)
   return axes
 }
-},{"./lib/background.js":27,"./lib/cube.js":28,"./lib/lines.js":29,"./lib/text.js":30,"./lib/ticks.js":31}],27:[function(require,module,exports){
+},{"./lib/background.js":22,"./lib/cube.js":23,"./lib/lines.js":24,"./lib/text.js":25,"./lib/ticks.js":26}],22:[function(require,module,exports){
 "use strict";
 module.exports = createBackgroundCube;
 var createBuffer = require("gl-buffer");
@@ -4978,6 +3338,19 @@ function BackgroundCube(gl, buffer, vao, shader) {
 var proto = BackgroundCube.prototype;
 
 proto.draw = function(model, view, projection, bounds, enable, colors) {
+    var needsBG = false;
+
+    for (var i = 0; i < 3; ++i) {
+        needsBG = needsBG || enable[i];
+    }
+
+    if (!needsBG) {
+        return;
+    }
+
+    var gl = this.gl;
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    gl.polygonOffset(1, 2);
     this.shader.bind();
 
     this.shader.uniforms = {
@@ -4991,6 +3364,7 @@ proto.draw = function(model, view, projection, bounds, enable, colors) {
 
     this.vao.bind();
     this.vao.draw(this.gl.TRIANGLES, 36);
+    gl.disable(gl.POLYGON_OFFSET_FILL);
 };
 
 proto.dispose = function() {
@@ -5053,7 +3427,7 @@ function createBackgroundCube(gl) {
     shader.attributes.normal.location = 1;
     return new BackgroundCube(gl, buffer, vao, shader);
 }
-},{"gl-buffer":35,"gl-vao":50,"glslify":169,"glslify/adapter.js":168}],28:[function(require,module,exports){
+},{"gl-buffer":30,"gl-vao":45,"glslify":164,"glslify/adapter.js":163}],23:[function(require,module,exports){
 "use strict"
 
 module.exports = getCubeEdges
@@ -5152,59 +3526,73 @@ function getCubeEdges(model, view, projection, bounds) {
       for(var k=0; k<2; ++k) {
         x[0] = bounds[k][0]
         transformHg(pCubeVerts[ptr], x, mvp)
-        var w = pCubeVerts[ptr][3]
-        for(var l=0; l<3; ++l) {
-          cubeVerts[ptr][l] = pCubeVerts[ptr][l] / w
-        }
         ptr += 1
       }
     }
   }
 
   //Classify camera against cube faces
-  var closest = 0
-  for(var d=0; d<3; ++d) {
-    var u = (d+2) % 3
-    var v = (d+1) % 3
-    var o0 = -1
-    var o1 = -1
-    for(var s=0; s<2; ++s) {
-      var f0 = (s<<d)
-      var f1 = f0 + (s << u) + ((1-s) << v)
-      var f2 = f0 + ((1-s) << u) + (s << v)
-      if(orient(cubeVerts[f0], cubeVerts[f1], cubeVerts[f2], zero3) < 0) {
-        continue
-      }
-      if(s) {
-        o0 = 1
-      } else {
-        o1 = 1
-      }
+  var closest = -1
+
+  for(var i=0; i<8; ++i) {
+    var w = pCubeVerts[i][3]
+    for(var l=0; l<3; ++l) {
+      cubeVerts[i][l] = pCubeVerts[i][l] / w
     }
-    if(o0 < 0 || o1 < 0) {
+    if(w < 0) {
+      if(closest < 0) {
+        closest = i
+      } else if(cubeVerts[i][2] < cubeVerts[closest][2]) {
+        closest = i
+      }
+    }    
+  }
+
+  if(closest < 0) {
+    closest = 0
+    for(var d=0; d<3; ++d) {
+      var u = (d+2) % 3
+      var v = (d+1) % 3
+      var o0 = -1
+      var o1 = -1
+      for(var s=0; s<2; ++s) {
+        var f0 = (s<<d)
+        var f1 = f0 + (s << u) + ((1-s) << v)
+        var f2 = f0 + ((1-s) << u) + (s << v)
+        if(orient(cubeVerts[f0], cubeVerts[f1], cubeVerts[f2], zero3) < 0) {
+          continue
+        }
+        if(s) {
+          o0 = 1
+        } else {
+          o1 = 1
+        }
+      }
+      if(o0 < 0 || o1 < 0) {
+        if(o1 > o0) {
+          closest |= 1<<d
+        }
+        continue
+      } 
+      for(var s=0; s<2; ++s) {
+        var f0 = (s<<d)
+        var f1 = f0 + (s << u) + ((1-s) << v)
+        var f2 = f0 + ((1-s) << u) + (s << v)    
+        var o = polygonArea([
+            pCubeVerts[f0], 
+            pCubeVerts[f1], 
+            pCubeVerts[f2], 
+            pCubeVerts[f0+(1<<u)+(1<<v)]])
+        if(s) {
+          o0 = o
+        } else {
+          o1 = o
+        }
+      }
       if(o1 > o0) {
         closest |= 1<<d
+        continue
       }
-      continue
-    } 
-    for(var s=0; s<2; ++s) {
-      var f0 = (s<<d)
-      var f1 = f0 + (s << u) + ((1-s) << v)
-      var f2 = f0 + ((1-s) << u) + (s << v)    
-      var o = polygonArea([
-          pCubeVerts[f0], 
-          pCubeVerts[f1], 
-          pCubeVerts[f2], 
-          pCubeVerts[f0+(1<<u)+(1<<v)]])
-      if(s) {
-        o0 = o
-      } else {
-        o1 = o
-      }
-    }
-    if(o1 > o0) {
-      closest |= 1<<d
-      continue
     }
   }
 
@@ -5280,7 +3668,7 @@ function getCubeEdges(model, view, projection, bounds) {
   //Return result
   return CUBE_RESULT
 }
-},{"bit-twiddle":32,"gl-mat4/invert":128,"gl-mat4/multiply":130,"robust-orientation":56,"split-polygon":57}],29:[function(require,module,exports){
+},{"bit-twiddle":27,"gl-mat4/invert":123,"gl-mat4/multiply":125,"robust-orientation":51,"split-polygon":52}],24:[function(require,module,exports){
 "use strict";
 module.exports = createLines;
 var createBuffer = require("gl-buffer");
@@ -5422,7 +3810,7 @@ function createLines(gl, bounds, ticks) {
     shader.attributes.position.location = 0;
     return new Lines(gl, vertBuf, vao, shader, tickCount, tickOffset, gridCount, gridOffset);
 }
-},{"gl-buffer":35,"gl-vao":50,"glslify":169,"glslify/adapter.js":168}],30:[function(require,module,exports){
+},{"gl-buffer":30,"gl-vao":45,"glslify":164,"glslify/adapter.js":163}],25:[function(require,module,exports){
 (function (process){
 "use strict";
 module.exports = createTextSprites;
@@ -5586,7 +3974,7 @@ function createTextSprites(gl, bounds, labels, labelFont, ticks, tickFont) {
     return result;
 }
 }).call(this,require('_process'))
-},{"_process":5,"gl-buffer":35,"gl-vao":50,"glslify":169,"glslify/adapter.js":168,"vectorize-text":61}],31:[function(require,module,exports){
+},{"_process":254,"gl-buffer":30,"gl-vao":45,"glslify":164,"glslify/adapter.js":163,"vectorize-text":56}],26:[function(require,module,exports){
 'use strict'
 
 exports.create   = defaultTicks
@@ -5659,11 +4047,11 @@ function ticksEqual(ticksA, ticksB) {
   }
   return true
 }
-},{}],32:[function(require,module,exports){
-arguments[4][13][0].apply(exports,arguments)
-},{"dup":13}],33:[function(require,module,exports){
-arguments[4][14][0].apply(exports,arguments)
-},{"dup":14}],34:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
+arguments[4][8][0].apply(exports,arguments)
+},{"dup":8}],28:[function(require,module,exports){
+arguments[4][9][0].apply(exports,arguments)
+},{"dup":9}],29:[function(require,module,exports){
 "use strict"
 
 module.exports = extractPlanes
@@ -5680,25 +4068,25 @@ function extractPlanes(M, zNear, zFar) {
     [ zf*M[12] - M[8], zf*M[13] - M[9], zf*M[14] - M[10], zf*M[15] - M[11] ]
   ]
 }
-},{}],35:[function(require,module,exports){
+},{}],30:[function(require,module,exports){
+arguments[4][2][0].apply(exports,arguments)
+},{"dup":2,"ndarray":247,"ndarray-ops":31,"typedarray-pool":36,"webglew":38}],31:[function(require,module,exports){
+arguments[4][3][0].apply(exports,arguments)
+},{"cwise-compiler":32,"dup":3}],32:[function(require,module,exports){
+arguments[4][4][0].apply(exports,arguments)
+},{"./lib/thunk.js":34,"dup":4}],33:[function(require,module,exports){
+arguments[4][5][0].apply(exports,arguments)
+},{"dup":5,"uniq":35}],34:[function(require,module,exports){
+arguments[4][6][0].apply(exports,arguments)
+},{"./compile.js":33,"dup":6}],35:[function(require,module,exports){
 arguments[4][7][0].apply(exports,arguments)
-},{"dup":7,"ndarray":252,"ndarray-ops":36,"typedarray-pool":41,"webglew":43}],36:[function(require,module,exports){
-arguments[4][8][0].apply(exports,arguments)
-},{"cwise-compiler":37,"dup":8}],37:[function(require,module,exports){
-arguments[4][9][0].apply(exports,arguments)
-},{"./lib/thunk.js":39,"dup":9}],38:[function(require,module,exports){
+},{"dup":7}],36:[function(require,module,exports){
 arguments[4][10][0].apply(exports,arguments)
-},{"dup":10,"uniq":40}],39:[function(require,module,exports){
+},{"bit-twiddle":27,"buffer":250,"dup":10}],37:[function(require,module,exports){
 arguments[4][11][0].apply(exports,arguments)
-},{"./compile.js":38,"dup":11}],40:[function(require,module,exports){
+},{"dup":11}],38:[function(require,module,exports){
 arguments[4][12][0].apply(exports,arguments)
-},{"dup":12}],41:[function(require,module,exports){
-arguments[4][15][0].apply(exports,arguments)
-},{"bit-twiddle":32,"buffer":1,"dup":15}],42:[function(require,module,exports){
-arguments[4][16][0].apply(exports,arguments)
-},{"dup":16}],43:[function(require,module,exports){
-arguments[4][17][0].apply(exports,arguments)
-},{"dup":17,"weak-map":42}],44:[function(require,module,exports){
+},{"dup":12,"weak-map":37}],39:[function(require,module,exports){
 /**
  * @fileoverview gl-matrix - High performance matrix and vector operations
  * @author Brandon Jones
@@ -9571,19 +7959,19 @@ if(typeof(exports) !== 'undefined') {
   })(shim.exports);
 })();
 
-},{}],45:[function(require,module,exports){
+},{}],40:[function(require,module,exports){
+arguments[4][13][0].apply(exports,arguments)
+},{"dup":13}],41:[function(require,module,exports){
+arguments[4][14][0].apply(exports,arguments)
+},{"./do-bind.js":40,"dup":14}],42:[function(require,module,exports){
+arguments[4][15][0].apply(exports,arguments)
+},{"./do-bind.js":40,"dup":15}],43:[function(require,module,exports){
+arguments[4][11][0].apply(exports,arguments)
+},{"dup":11}],44:[function(require,module,exports){
+arguments[4][12][0].apply(exports,arguments)
+},{"dup":12,"weak-map":43}],45:[function(require,module,exports){
 arguments[4][18][0].apply(exports,arguments)
-},{"dup":18}],46:[function(require,module,exports){
-arguments[4][19][0].apply(exports,arguments)
-},{"./do-bind.js":45,"dup":19}],47:[function(require,module,exports){
-arguments[4][20][0].apply(exports,arguments)
-},{"./do-bind.js":45,"dup":20}],48:[function(require,module,exports){
-arguments[4][16][0].apply(exports,arguments)
-},{"dup":16}],49:[function(require,module,exports){
-arguments[4][17][0].apply(exports,arguments)
-},{"dup":17,"weak-map":48}],50:[function(require,module,exports){
-arguments[4][23][0].apply(exports,arguments)
-},{"./lib/vao-emulated.js":46,"./lib/vao-native.js":47,"dup":23,"webglew":49}],51:[function(require,module,exports){
+},{"./lib/vao-emulated.js":41,"./lib/vao-native.js":42,"dup":18,"webglew":44}],46:[function(require,module,exports){
 "use strict"
 
 module.exports = fastTwoSum
@@ -9601,7 +7989,7 @@ function fastTwoSum(a, b, result) {
 	}
 	return [ar+br, x]
 }
-},{}],52:[function(require,module,exports){
+},{}],47:[function(require,module,exports){
 "use strict"
 
 var twoProduct = require("two-product")
@@ -9652,7 +8040,7 @@ function scaleLinearExpansion(e, scale) {
   g.length = count
   return g
 }
-},{"two-product":55,"two-sum":51}],53:[function(require,module,exports){
+},{"two-product":50,"two-sum":46}],48:[function(require,module,exports){
 "use strict"
 
 module.exports = robustSubtract
@@ -9809,7 +8197,7 @@ function robustSubtract(e, f) {
   g.length = count
   return g
 }
-},{}],54:[function(require,module,exports){
+},{}],49:[function(require,module,exports){
 "use strict"
 
 module.exports = linearExpansionSum
@@ -9966,7 +8354,7 @@ function linearExpansionSum(e, f) {
   g.length = count
   return g
 }
-},{}],55:[function(require,module,exports){
+},{}],50:[function(require,module,exports){
 "use strict"
 
 module.exports = twoProduct
@@ -10000,7 +8388,7 @@ function twoProduct(a, b, result) {
 
   return [ y, x ]
 }
-},{}],56:[function(require,module,exports){
+},{}],51:[function(require,module,exports){
 "use strict"
 
 var twoProduct = require("two-product")
@@ -10191,7 +8579,7 @@ function generateOrientationProc() {
 }
 
 generateOrientationProc()
-},{"robust-scale":52,"robust-subtract":53,"robust-sum":54,"two-product":55}],57:[function(require,module,exports){
+},{"robust-scale":47,"robust-subtract":48,"robust-sum":49,"two-product":50}],52:[function(require,module,exports){
 "use strict"
 
 var robustDot = require("robust-dot-product")
@@ -10283,7 +8671,7 @@ function negative(points, plane) {
   }
   return neg
 }
-},{"robust-dot-product":58,"robust-sum":60}],58:[function(require,module,exports){
+},{"robust-dot-product":53,"robust-sum":55}],53:[function(require,module,exports){
 "use strict"
 
 var twoProduct = require("two-product")
@@ -10298,11 +8686,11 @@ function robustDotProduct(a, b) {
   }
   return r
 }
-},{"robust-sum":60,"two-product":59}],59:[function(require,module,exports){
-arguments[4][55][0].apply(exports,arguments)
-},{"dup":55}],60:[function(require,module,exports){
-arguments[4][54][0].apply(exports,arguments)
-},{"dup":54}],61:[function(require,module,exports){
+},{"robust-sum":55,"two-product":54}],54:[function(require,module,exports){
+arguments[4][50][0].apply(exports,arguments)
+},{"dup":50}],55:[function(require,module,exports){
+arguments[4][49][0].apply(exports,arguments)
+},{"dup":49}],56:[function(require,module,exports){
 "use strict"
 
 module.exports = createText
@@ -10318,7 +8706,7 @@ function createText(str, options) {
   }
   return vectorizeText(str, canvas, context, options)
 }
-},{"./lib/vtext":62,"canvas-browserify":63}],62:[function(require,module,exports){
+},{"./lib/vtext":57,"canvas-browserify":58}],57:[function(require,module,exports){
 "use strict"
 
 module.exports = vectorizeText
@@ -10521,7 +8909,7 @@ function vectorizeText(str, canvas, context, options) {
 
   return processPixels(pixels, options, size)
 }
-},{"ndarray":252,"planar-graph-to-polyline":81,"simplify-planar-graph":85,"surface-nets":101,"triangulate-polyline":112}],63:[function(require,module,exports){
+},{"ndarray":247,"planar-graph-to-polyline":76,"simplify-planar-graph":80,"surface-nets":96,"triangulate-polyline":107}],58:[function(require,module,exports){
 
 var Canvas = module.exports = function Canvas (w, h) {
   var canvas = document.createElement('canvas')
@@ -10538,7 +8926,7 @@ Canvas.Image = function () {
 
 
 
-},{}],64:[function(require,module,exports){
+},{}],59:[function(require,module,exports){
 'use strict'
 
 module.exports = trimLeaves
@@ -10594,7 +8982,7 @@ function trimLeaves(edges, positions) {
   
   return [ nedges, npositions ]
 }
-},{"edges-to-adjacency-list":65}],65:[function(require,module,exports){
+},{"edges-to-adjacency-list":60}],60:[function(require,module,exports){
 "use strict"
 
 module.exports = edgeToAdjacency
@@ -10628,7 +9016,7 @@ function edgeToAdjacency(edges, numVertices) {
   }
   return adj
 }
-},{"uniq":80}],66:[function(require,module,exports){
+},{"uniq":75}],61:[function(require,module,exports){
 "use strict"
 
 module.exports = planarDual
@@ -10759,7 +9147,7 @@ function planarDual(cells, positions) {
   //Combine paths and loops together
   return cycles
 }
-},{"compare-angle":67}],67:[function(require,module,exports){
+},{"compare-angle":62}],62:[function(require,module,exports){
 "use strict"
 
 module.exports = compareAngle
@@ -10845,9 +9233,9 @@ function compareAngle(a, b, c, d) {
     }
   }
 }
-},{"robust-orientation":56,"robust-product":69,"robust-sum":78,"signum":70,"two-sum":71}],68:[function(require,module,exports){
-arguments[4][52][0].apply(exports,arguments)
-},{"dup":52,"two-product":79,"two-sum":71}],69:[function(require,module,exports){
+},{"robust-orientation":51,"robust-product":64,"robust-sum":73,"signum":65,"two-sum":66}],63:[function(require,module,exports){
+arguments[4][47][0].apply(exports,arguments)
+},{"dup":47,"two-product":74,"two-sum":66}],64:[function(require,module,exports){
 "use strict"
 
 var robustSum = require("robust-sum")
@@ -10877,7 +9265,7 @@ function robustProduct(a, b) {
   }
   return r
 }
-},{"robust-scale":68,"robust-sum":78}],70:[function(require,module,exports){
+},{"robust-scale":63,"robust-sum":73}],65:[function(require,module,exports){
 "use strict"
 
 module.exports = function signum(x) {
@@ -10885,9 +9273,9 @@ module.exports = function signum(x) {
   if(x > 0) { return 1 }
   return 0.0
 }
-},{}],71:[function(require,module,exports){
-arguments[4][51][0].apply(exports,arguments)
-},{"dup":51}],72:[function(require,module,exports){
+},{}],66:[function(require,module,exports){
+arguments[4][46][0].apply(exports,arguments)
+},{"dup":46}],67:[function(require,module,exports){
 "use strict"
 
 function compileSearch(funcName, predicate, reversed, extraArgs, useNdarray, earlyOut) {
@@ -10949,7 +9337,7 @@ module.exports = {
   eq: compileBoundsSearch("-", true, "EQ", true)
 }
 
-},{}],73:[function(require,module,exports){
+},{}],68:[function(require,module,exports){
 "use strict"
 
 var bounds = require("binary-search-bounds")
@@ -11135,7 +9523,6 @@ proto.remove = function(interval) {
             return SUCCESS
           }
         }
-        throw new Error("This should never happen")
       }
     }
     return NOT_FOUND
@@ -11179,13 +9566,17 @@ proto.queryPoint = function(x, cb) {
   }
 }
 
-function reportRange(arr, lo, hi, cb, cmp) {
-  //Range search on left points
-  var a = bounds.ge(arr, lo, cmp)
-  var b = bounds.le(arr, hi, cmp, a)
-  if(b < arr.length && cmp(hi, arr[b]) === 0) {
-    ++b
+function reportLeftRange(arr, lo, hi, cb) {
+  var b = bounds.gt(arr, hi, compareXBegin)
+  for(var i=0; i<b; ++i) {
+    var r = cb(arr[i])
+    if(r) { return r }
   }
+}
+
+function reportRightRange(arr, lo, hi, cb) {
+  var a = bounds.ge(arr, lo, compareXEnd)
+  var b = arr.length
   for(var i=a; i<b; ++i) {
     var r = cb(arr[i])
     if(r) { return r }
@@ -11202,10 +9593,10 @@ proto.queryInterval = function(lo, hi, cb) {
     if(r) { return r }
   }
   if(hi < this.mid) {
-    var r = reportRange(this.leftPoints, lo, hi, cb, compareXBegin)
+    var r = reportLeftRange(this.leftPoints, lo, hi, cb)
     if(r) { return r }
   } else if(lo > this.mid) {
-    var r = reportRange(this.rightPoints, lo, hi, cb, compareXEnd)
+    var r = reportRightRange(this.rightPoints, lo, hi, cb)
     if(r) { return r }
   } else {
     for(var i=0; i<this.leftPoints.length; ++i) {
@@ -11303,7 +9694,7 @@ tproto.queryPoint = function(p, cb) {
 }
 
 tproto.queryInterval = function(lo, hi, cb) {
-  if(this.root) {
+  if(lo <= hi && this.root) {
     return this.root.queryInterval(lo, hi, cb)
   }
 }
@@ -11327,13 +9718,13 @@ Object.defineProperty(tproto, "intervals", {
 })
 
 function createWrapper(intervals) {
-  if(intervals.length === 0 || !intervals) {
+  if(!intervals || intervals.length === 0) {
     return new IntervalTree(null)
   }
   return new IntervalTree(createIntervalTree(intervals))
 }
 
-},{"binary-search-bounds":72}],74:[function(require,module,exports){
+},{"binary-search-bounds":67}],69:[function(require,module,exports){
 "use strict"
 
 module.exports = orderSegments
@@ -11429,7 +9820,7 @@ function orderSegments(b, a) {
   }
   return ar[0] - br[0]
 }
-},{"robust-orientation":56}],75:[function(require,module,exports){
+},{"robust-orientation":51}],70:[function(require,module,exports){
 "use strict"
 
 module.exports = createRBTree
@@ -12426,7 +10817,7 @@ function defaultCompare(a, b) {
 function createRBTree(compare) {
   return new RedBlackTree(compare || defaultCompare, null)
 }
-},{}],76:[function(require,module,exports){
+},{}],71:[function(require,module,exports){
 "use strict"
 
 module.exports = createSlabDecomposition
@@ -12657,7 +11048,7 @@ function createSlabDecomposition(segments) {
   }
   return new SlabDecomposition(slabs, lines, horizontal)
 }
-},{"./lib/order-segments":74,"binary-search-bounds":72,"functional-red-black-tree":75,"robust-orientation":56}],77:[function(require,module,exports){
+},{"./lib/order-segments":69,"binary-search-bounds":67,"functional-red-black-tree":70,"robust-orientation":51}],72:[function(require,module,exports){
 module.exports = preprocessPolygon
 
 var orient = require('robust-orientation')[3]
@@ -12809,13 +11200,13 @@ function preprocessPolygon(loops) {
       testSlab)
   }
 }
-},{"binary-search-bounds":72,"interval-tree-1d":73,"robust-orientation":56,"slab-decomposition":76}],78:[function(require,module,exports){
-arguments[4][54][0].apply(exports,arguments)
-},{"dup":54}],79:[function(require,module,exports){
-arguments[4][55][0].apply(exports,arguments)
-},{"dup":55}],80:[function(require,module,exports){
-arguments[4][12][0].apply(exports,arguments)
-},{"dup":12}],81:[function(require,module,exports){
+},{"binary-search-bounds":67,"interval-tree-1d":68,"robust-orientation":51,"slab-decomposition":71}],73:[function(require,module,exports){
+arguments[4][49][0].apply(exports,arguments)
+},{"dup":49}],74:[function(require,module,exports){
+arguments[4][50][0].apply(exports,arguments)
+},{"dup":50}],75:[function(require,module,exports){
+arguments[4][7][0].apply(exports,arguments)
+},{"dup":7}],76:[function(require,module,exports){
 'use strict'
 
 module.exports = planarGraphToPolyline
@@ -13020,9 +11411,9 @@ function planarGraphToPolyline(edges, positions) {
 
   return result
 }
-},{"./lib/trim-leaves":64,"edges-to-adjacency-list":65,"planar-dual":66,"point-in-big-polygon":77,"robust-sum":78,"two-product":79,"uniq":80}],82:[function(require,module,exports){
-arguments[4][13][0].apply(exports,arguments)
-},{"dup":13}],83:[function(require,module,exports){
+},{"./lib/trim-leaves":59,"edges-to-adjacency-list":60,"planar-dual":61,"point-in-big-polygon":72,"robust-sum":73,"two-product":74,"uniq":75}],77:[function(require,module,exports){
+arguments[4][8][0].apply(exports,arguments)
+},{"dup":8}],78:[function(require,module,exports){
 "use strict"; "use restrict";
 
 module.exports = UnionFind;
@@ -13079,7 +11470,7 @@ UnionFind.prototype.link = function(x, y) {
 }
 
 
-},{}],84:[function(require,module,exports){
+},{}],79:[function(require,module,exports){
 "use strict"; "use restrict";
 
 var bits      = require("bit-twiddle")
@@ -13423,7 +11814,7 @@ function connectedComponents(cells, vertex_count) {
 }
 exports.connectedComponents = connectedComponents
 
-},{"bit-twiddle":82,"union-find":83}],85:[function(require,module,exports){
+},{"bit-twiddle":77,"union-find":78}],80:[function(require,module,exports){
 "use strict"
 
 module.exports = simplifyPolygon
@@ -13695,7 +12086,7 @@ function simplifyPolygon(cells, positions, minArea) {
     edges: ncells
   }
 }
-},{"robust-orientation":56,"simplicial-complex":84}],86:[function(require,module,exports){
+},{"robust-orientation":51,"simplicial-complex":79}],81:[function(require,module,exports){
 "use strict"
 
 var pool = require("typedarray-pool")
@@ -14111,9 +12502,9 @@ function createSurfaceExtractor(args) {
     order,
     typesig)
 }
-},{"typedarray-pool":87}],87:[function(require,module,exports){
-arguments[4][15][0].apply(exports,arguments)
-},{"bit-twiddle":32,"buffer":1,"dup":15}],88:[function(require,module,exports){
+},{"typedarray-pool":82}],82:[function(require,module,exports){
+arguments[4][10][0].apply(exports,arguments)
+},{"bit-twiddle":27,"buffer":250,"dup":10}],83:[function(require,module,exports){
 // transliterated from the python snippet here:
 // http://en.wikipedia.org/wiki/Lanczos_approximation
 
@@ -14182,9 +12573,9 @@ module.exports = function gamma (z) {
 
 module.exports.log = lngamma;
 
-},{}],89:[function(require,module,exports){
-arguments[4][15][0].apply(exports,arguments)
-},{"bit-twiddle":32,"buffer":1,"dup":15}],90:[function(require,module,exports){
+},{}],84:[function(require,module,exports){
+arguments[4][10][0].apply(exports,arguments)
+},{"bit-twiddle":27,"buffer":250,"dup":10}],85:[function(require,module,exports){
 "use strict"
 
 module.exports = permutationSign
@@ -14236,7 +12627,7 @@ function permutationSign(p) {
     return sgn
   }
 }
-},{"typedarray-pool":89}],91:[function(require,module,exports){
+},{"typedarray-pool":84}],86:[function(require,module,exports){
 "use strict"
 
 var pool = require("typedarray-pool")
@@ -14323,7 +12714,7 @@ function unrank(n, r, p) {
 exports.rank = rank
 exports.unrank = unrank
 
-},{"invert-permutation":92,"typedarray-pool":93}],92:[function(require,module,exports){
+},{"invert-permutation":87,"typedarray-pool":88}],87:[function(require,module,exports){
 "use strict"
 
 function invertPermutation(pi, result) {
@@ -14335,9 +12726,9 @@ function invertPermutation(pi, result) {
 }
 
 module.exports = invertPermutation
-},{}],93:[function(require,module,exports){
-arguments[4][15][0].apply(exports,arguments)
-},{"bit-twiddle":32,"buffer":1,"dup":15}],94:[function(require,module,exports){
+},{}],88:[function(require,module,exports){
+arguments[4][10][0].apply(exports,arguments)
+},{"bit-twiddle":27,"buffer":250,"dup":10}],89:[function(require,module,exports){
 "use strict"
 
 module.exports = triangulateCube
@@ -14371,7 +12762,7 @@ function triangulateCube(dimension) {
   }
   return result
 }
-},{"gamma":88,"permutation-parity":90,"permutation-rank":91}],95:[function(require,module,exports){
+},{"gamma":83,"permutation-parity":85,"permutation-rank":86}],90:[function(require,module,exports){
 module.exports = require('cwise-compiler')({
     args: ['array', {
         offset: [1],
@@ -14423,15 +12814,15 @@ module.exports = require('cwise-compiler')({
     funcName: 'zeroCrossings'
 })
 
-},{"cwise-compiler":96}],96:[function(require,module,exports){
-arguments[4][9][0].apply(exports,arguments)
-},{"./lib/thunk.js":98,"dup":9}],97:[function(require,module,exports){
-arguments[4][10][0].apply(exports,arguments)
-},{"dup":10,"uniq":99}],98:[function(require,module,exports){
-arguments[4][11][0].apply(exports,arguments)
-},{"./compile.js":97,"dup":11}],99:[function(require,module,exports){
-arguments[4][12][0].apply(exports,arguments)
-},{"dup":12}],100:[function(require,module,exports){
+},{"cwise-compiler":91}],91:[function(require,module,exports){
+arguments[4][4][0].apply(exports,arguments)
+},{"./lib/thunk.js":93,"dup":4}],92:[function(require,module,exports){
+arguments[4][5][0].apply(exports,arguments)
+},{"dup":5,"uniq":94}],93:[function(require,module,exports){
+arguments[4][6][0].apply(exports,arguments)
+},{"./compile.js":92,"dup":6}],94:[function(require,module,exports){
+arguments[4][7][0].apply(exports,arguments)
+},{"dup":7}],95:[function(require,module,exports){
 "use strict"
 
 module.exports = findZeroCrossings
@@ -14444,7 +12835,7 @@ function findZeroCrossings(array, level) {
   core(array.hi(array.shape[0]-1), cross, level)
   return cross
 }
-},{"./lib/zc-core":95}],101:[function(require,module,exports){
+},{"./lib/zc-core":90}],96:[function(require,module,exports){
 "use strict"
 
 module.exports = surfaceNets
@@ -14652,9 +13043,9 @@ function surfaceNets(array,level) {
   }
   return proc(array,level)
 }
-},{"ndarray-extract-contour":86,"triangulate-hypercube":94,"zero-crossings":100}],102:[function(require,module,exports){
+},{"ndarray-extract-contour":81,"triangulate-hypercube":89,"zero-crossings":95}],97:[function(require,module,exports){
 module.exports={"version": "1.3.3"}
-},{}],103:[function(require,module,exports){
+},{}],98:[function(require,module,exports){
 /*
  * Poly2Tri Copyright (c) 2009-2013, Poly2Tri Contributors
  * http://code.google.com/p/poly2tri/
@@ -14801,7 +13192,7 @@ module.exports = AdvancingFront;
 module.exports.Node = Node;
 
 
-},{}],104:[function(require,module,exports){
+},{}],99:[function(require,module,exports){
 /*
  * Poly2Tri Copyright (c) 2009-2013, Poly2Tri Contributors
  * http://code.google.com/p/poly2tri/
@@ -15038,7 +13429,7 @@ Point.dot = function(a, b) {
 
 module.exports = Point;
 
-},{"./xy":111}],105:[function(require,module,exports){
+},{"./xy":106}],100:[function(require,module,exports){
 /*
  * Poly2Tri Copyright (c) 2009-2013, Poly2Tri Contributors
  * http://code.google.com/p/poly2tri/
@@ -15078,7 +13469,7 @@ PointError.prototype.constructor = PointError;
 
 module.exports = PointError;
 
-},{"./xy":111}],106:[function(require,module,exports){
+},{"./xy":106}],101:[function(require,module,exports){
 (function (global){
 /*
  * Poly2Tri Copyright (c) 2009-2013, Poly2Tri Contributors
@@ -15147,7 +13538,7 @@ exports.triangulate = sweep.triangulate;
 exports.sweep = {Triangulate: sweep.triangulate};
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"../dist/version.json":102,"./point":104,"./pointerror":105,"./sweep":107,"./sweepcontext":108,"./triangle":109}],107:[function(require,module,exports){
+},{"../dist/version.json":97,"./point":99,"./pointerror":100,"./sweep":102,"./sweepcontext":103,"./triangle":104}],102:[function(require,module,exports){
 /*
  * Poly2Tri Copyright (c) 2009-2013, Poly2Tri Contributors
  * http://code.google.com/p/poly2tri/
@@ -16000,7 +14391,7 @@ function flipScanEdgeEvent(tcx, ep, eq, flip_triangle, t, p) {
 
 exports.triangulate = triangulate;
 
-},{"./advancingfront":103,"./pointerror":105,"./triangle":109,"./utils":110}],108:[function(require,module,exports){
+},{"./advancingfront":98,"./pointerror":100,"./triangle":104,"./utils":105}],103:[function(require,module,exports){
 /*
  * Poly2Tri Copyright (c) 2009-2013, Poly2Tri Contributors
  * http://code.google.com/p/poly2tri/
@@ -16360,7 +14751,7 @@ SweepContext.prototype.meshClean = function(triangle) {
 
 module.exports = SweepContext;
 
-},{"./advancingfront":103,"./point":104,"./pointerror":105,"./sweep":107,"./triangle":109}],109:[function(require,module,exports){
+},{"./advancingfront":98,"./point":99,"./pointerror":100,"./sweep":102,"./triangle":104}],104:[function(require,module,exports){
 /*
  * Poly2Tri Copyright (c) 2009-2013, Poly2Tri Contributors
  * http://code.google.com/p/poly2tri/
@@ -16799,7 +15190,7 @@ Triangle.prototype.markConstrainedEdgeByPoints = function(p, q) {
 
 module.exports = Triangle;
 
-},{"./xy":111}],110:[function(require,module,exports){
+},{"./xy":106}],105:[function(require,module,exports){
 /*
  * Poly2Tri Copyright (c) 2009-2013, Poly2Tri Contributors
  * http://code.google.com/p/poly2tri/
@@ -16882,7 +15273,7 @@ module.exports = {
     inScanArea: inScanArea
 };
 
-},{}],111:[function(require,module,exports){
+},{}],106:[function(require,module,exports){
 /*
  * Poly2Tri Copyright (c) 2009-2013, Poly2Tri Contributors
  * http://code.google.com/p/poly2tri/
@@ -16949,7 +15340,7 @@ module.exports = {
     equals: equals
 };
 
-},{}],112:[function(require,module,exports){
+},{}],107:[function(require,module,exports){
 "use strict"
 
 module.exports = triangulateLoop
@@ -17032,7 +15423,7 @@ function triangulateLoop(loops, positions) {
   }
   return []
 }
-},{"poly2tri":106}],113:[function(require,module,exports){
+},{"poly2tri":101}],108:[function(require,module,exports){
 "use strict"
 
 module.exports = axesProperties
@@ -17173,7 +15564,7 @@ i_loop:
 
   return ranges
 }
-},{"./lib/cube.js":28,"extract-frustum-planes":34,"gl-matrix":44,"split-polygon":57}],114:[function(require,module,exports){
+},{"./lib/cube.js":23,"extract-frustum-planes":29,"gl-matrix":39,"split-polygon":52}],109:[function(require,module,exports){
 'use strict'
 
 var webglew = require('webglew')
@@ -17642,23 +16033,23 @@ function createFBO(gl, width, height, options) {
     useStencil, 
     extensions.WEBGL_draw_buffers)
 }
-},{"gl-texture2d":123,"webglew":125}],115:[function(require,module,exports){
+},{"gl-texture2d":118,"webglew":120}],110:[function(require,module,exports){
+arguments[4][3][0].apply(exports,arguments)
+},{"cwise-compiler":111,"dup":3}],111:[function(require,module,exports){
+arguments[4][4][0].apply(exports,arguments)
+},{"./lib/thunk.js":113,"dup":4}],112:[function(require,module,exports){
+arguments[4][5][0].apply(exports,arguments)
+},{"dup":5,"uniq":114}],113:[function(require,module,exports){
+arguments[4][6][0].apply(exports,arguments)
+},{"./compile.js":112,"dup":6}],114:[function(require,module,exports){
+arguments[4][7][0].apply(exports,arguments)
+},{"dup":7}],115:[function(require,module,exports){
 arguments[4][8][0].apply(exports,arguments)
-},{"cwise-compiler":116,"dup":8}],116:[function(require,module,exports){
+},{"dup":8}],116:[function(require,module,exports){
 arguments[4][9][0].apply(exports,arguments)
-},{"./lib/thunk.js":118,"dup":9}],117:[function(require,module,exports){
+},{"dup":9}],117:[function(require,module,exports){
 arguments[4][10][0].apply(exports,arguments)
-},{"dup":10,"uniq":119}],118:[function(require,module,exports){
-arguments[4][11][0].apply(exports,arguments)
-},{"./compile.js":117,"dup":11}],119:[function(require,module,exports){
-arguments[4][12][0].apply(exports,arguments)
-},{"dup":12}],120:[function(require,module,exports){
-arguments[4][13][0].apply(exports,arguments)
-},{"dup":13}],121:[function(require,module,exports){
-arguments[4][14][0].apply(exports,arguments)
-},{"dup":14}],122:[function(require,module,exports){
-arguments[4][15][0].apply(exports,arguments)
-},{"bit-twiddle":120,"buffer":1,"dup":15}],123:[function(require,module,exports){
+},{"bit-twiddle":115,"buffer":250,"dup":10}],118:[function(require,module,exports){
 'use strict'
 
 var ndarray = require('ndarray')
@@ -18218,11 +16609,11 @@ function createTexture2D(gl) {
   throw new Error('gl-texture2d: Invalid arguments for texture2d constructor')
 }
 
-},{"ndarray":252,"ndarray-ops":115,"typedarray-pool":122,"webglew":125}],124:[function(require,module,exports){
-arguments[4][16][0].apply(exports,arguments)
-},{"dup":16}],125:[function(require,module,exports){
-arguments[4][17][0].apply(exports,arguments)
-},{"dup":17,"weak-map":124}],126:[function(require,module,exports){
+},{"ndarray":247,"ndarray-ops":110,"typedarray-pool":117,"webglew":120}],119:[function(require,module,exports){
+arguments[4][11][0].apply(exports,arguments)
+},{"dup":11}],120:[function(require,module,exports){
+arguments[4][12][0].apply(exports,arguments)
+},{"dup":12,"weak-map":119}],121:[function(require,module,exports){
 module.exports = fromQuat;
 
 /**
@@ -18270,7 +16661,7 @@ function fromQuat(out, q) {
 
     return out;
 };
-},{}],127:[function(require,module,exports){
+},{}],122:[function(require,module,exports){
 module.exports = identity;
 
 /**
@@ -18298,7 +16689,7 @@ function identity(out) {
     out[15] = 1;
     return out;
 };
-},{}],128:[function(require,module,exports){
+},{}],123:[function(require,module,exports){
 module.exports = invert;
 
 /**
@@ -18354,7 +16745,7 @@ function invert(out, a) {
 
     return out;
 };
-},{}],129:[function(require,module,exports){
+},{}],124:[function(require,module,exports){
 var identity = require('./identity');
 
 module.exports = lookAt;
@@ -18445,7 +16836,7 @@ function lookAt(out, eye, center, up) {
 
     return out;
 };
-},{"./identity":127}],130:[function(require,module,exports){
+},{"./identity":122}],125:[function(require,module,exports){
 module.exports = multiply;
 
 /**
@@ -18488,7 +16879,7 @@ function multiply(out, a, b) {
     out[15] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
     return out;
 };
-},{}],131:[function(require,module,exports){
+},{}],126:[function(require,module,exports){
 module.exports = perspective;
 
 /**
@@ -18522,23 +16913,23 @@ function perspective(out, fovy, aspect, near, far) {
     out[15] = 0;
     return out;
 };
-},{}],132:[function(require,module,exports){
-arguments[4][13][0].apply(exports,arguments)
-},{"dup":13}],133:[function(require,module,exports){
+},{}],127:[function(require,module,exports){
+arguments[4][8][0].apply(exports,arguments)
+},{"dup":8}],128:[function(require,module,exports){
 module.exports = require("cwise-compiler")
-},{"cwise-compiler":134}],134:[function(require,module,exports){
+},{"cwise-compiler":129}],129:[function(require,module,exports){
+arguments[4][4][0].apply(exports,arguments)
+},{"./lib/thunk.js":131,"dup":4}],130:[function(require,module,exports){
+arguments[4][5][0].apply(exports,arguments)
+},{"dup":5,"uniq":132}],131:[function(require,module,exports){
+arguments[4][6][0].apply(exports,arguments)
+},{"./compile.js":130,"dup":6}],132:[function(require,module,exports){
+arguments[4][7][0].apply(exports,arguments)
+},{"dup":7}],133:[function(require,module,exports){
 arguments[4][9][0].apply(exports,arguments)
-},{"./lib/thunk.js":136,"dup":9}],135:[function(require,module,exports){
+},{"dup":9}],134:[function(require,module,exports){
 arguments[4][10][0].apply(exports,arguments)
-},{"dup":10,"uniq":137}],136:[function(require,module,exports){
-arguments[4][11][0].apply(exports,arguments)
-},{"./compile.js":135,"dup":11}],137:[function(require,module,exports){
-arguments[4][12][0].apply(exports,arguments)
-},{"dup":12}],138:[function(require,module,exports){
-arguments[4][14][0].apply(exports,arguments)
-},{"dup":14}],139:[function(require,module,exports){
-arguments[4][15][0].apply(exports,arguments)
-},{"bit-twiddle":132,"buffer":1,"dup":15}],140:[function(require,module,exports){
+},{"bit-twiddle":127,"buffer":250,"dup":10}],135:[function(require,module,exports){
 'use strict'
 
 module.exports = createSelectBuffer
@@ -18689,7 +17080,7 @@ function createSelectBuffer(gl, shape) {
   var buffer = pool.mallocUint8(shape[0]*shape[1]*4)
   return new SelectBuffer(gl, fbo, buffer)
 }
-},{"bit-twiddle":132,"cwise/lib/wrapper":133,"gl-fbo":114,"ndarray":252,"typedarray-pool":139}],141:[function(require,module,exports){
+},{"bit-twiddle":127,"cwise/lib/wrapper":128,"gl-fbo":109,"ndarray":247,"typedarray-pool":134}],136:[function(require,module,exports){
 'use strict'
 
 var createUniformWrapper   = require('./lib/create-uniforms')
@@ -18924,7 +17315,7 @@ function createShader(
 }
 
 module.exports = createShader
-},{"./lib/create-attributes":142,"./lib/create-uniforms":143,"./lib/reflect":144,"./lib/runtime-reflect":145,"./lib/shader-cache":146}],142:[function(require,module,exports){
+},{"./lib/create-attributes":137,"./lib/create-uniforms":138,"./lib/reflect":139,"./lib/runtime-reflect":140,"./lib/shader-cache":141}],137:[function(require,module,exports){
 'use strict'
 
 module.exports = createAttributeWrapper
@@ -19186,7 +17577,7 @@ function createAttributeWrapper(
   }
   return obj
 }
-},{}],143:[function(require,module,exports){
+},{}],138:[function(require,module,exports){
 'use strict'
 
 var coallesceUniforms = require('./reflect')
@@ -19378,7 +17769,7 @@ function createUniformWrapper(gl, wrapper, uniforms, locations) {
   }
 }
 
-},{"./reflect":144}],144:[function(require,module,exports){
+},{"./reflect":139}],139:[function(require,module,exports){
 'use strict'
 
 module.exports = makeReflectTypes
@@ -19436,7 +17827,7 @@ function makeReflectTypes(uniforms, useIndex) {
   }
   return obj
 }
-},{}],145:[function(require,module,exports){
+},{}],140:[function(require,module,exports){
 'use strict'
 
 exports.uniforms    = runtimeUniforms
@@ -19505,7 +17896,7 @@ function runtimeAttributes(gl, program) {
   }
   return result
 }
-},{}],146:[function(require,module,exports){
+},{}],141:[function(require,module,exports){
 'use strict'
 
 exports.shader   = getShaderReference
@@ -19635,7 +18026,7 @@ function getShaderReference(gl, type, src) {
 function createProgram(gl, vref, fref, attribs, locations) {
   return getCache(gl).getProgram(vref, fref, attribs, locations)
 }
-},{"weakmap-shim":149}],147:[function(require,module,exports){
+},{"weakmap-shim":144}],142:[function(require,module,exports){
 var hiddenStore = require('./hidden-store.js');
 
 module.exports = createStore;
@@ -19656,7 +18047,7 @@ function createStore() {
     };
 }
 
-},{"./hidden-store.js":148}],148:[function(require,module,exports){
+},{"./hidden-store.js":143}],143:[function(require,module,exports){
 module.exports = hiddenStore;
 
 function hiddenStore(obj, key) {
@@ -19674,7 +18065,7 @@ function hiddenStore(obj, key) {
     return store;
 }
 
-},{}],149:[function(require,module,exports){
+},{}],144:[function(require,module,exports){
 // Original - @Gozola. 
 // https://gist.github.com/Gozala/1269991
 // This is a reimplemented version (with a few bug fixes).
@@ -19704,41 +18095,41 @@ function weakMap() {
     }
 }
 
-},{"./create-store.js":147}],150:[function(require,module,exports){
+},{"./create-store.js":142}],145:[function(require,module,exports){
+arguments[4][2][0].apply(exports,arguments)
+},{"dup":2,"ndarray":247,"ndarray-ops":146,"typedarray-pool":153,"webglew":155}],146:[function(require,module,exports){
+arguments[4][3][0].apply(exports,arguments)
+},{"cwise-compiler":147,"dup":3}],147:[function(require,module,exports){
+arguments[4][4][0].apply(exports,arguments)
+},{"./lib/thunk.js":149,"dup":4}],148:[function(require,module,exports){
+arguments[4][5][0].apply(exports,arguments)
+},{"dup":5,"uniq":150}],149:[function(require,module,exports){
+arguments[4][6][0].apply(exports,arguments)
+},{"./compile.js":148,"dup":6}],150:[function(require,module,exports){
 arguments[4][7][0].apply(exports,arguments)
-},{"dup":7,"ndarray":252,"ndarray-ops":151,"typedarray-pool":158,"webglew":160}],151:[function(require,module,exports){
+},{"dup":7}],151:[function(require,module,exports){
 arguments[4][8][0].apply(exports,arguments)
-},{"cwise-compiler":152,"dup":8}],152:[function(require,module,exports){
+},{"dup":8}],152:[function(require,module,exports){
 arguments[4][9][0].apply(exports,arguments)
-},{"./lib/thunk.js":154,"dup":9}],153:[function(require,module,exports){
+},{"dup":9}],153:[function(require,module,exports){
 arguments[4][10][0].apply(exports,arguments)
-},{"dup":10,"uniq":155}],154:[function(require,module,exports){
+},{"bit-twiddle":151,"buffer":250,"dup":10}],154:[function(require,module,exports){
 arguments[4][11][0].apply(exports,arguments)
-},{"./compile.js":153,"dup":11}],155:[function(require,module,exports){
+},{"dup":11}],155:[function(require,module,exports){
 arguments[4][12][0].apply(exports,arguments)
-},{"dup":12}],156:[function(require,module,exports){
+},{"dup":12,"weak-map":154}],156:[function(require,module,exports){
 arguments[4][13][0].apply(exports,arguments)
 },{"dup":13}],157:[function(require,module,exports){
 arguments[4][14][0].apply(exports,arguments)
-},{"dup":14}],158:[function(require,module,exports){
+},{"./do-bind.js":156,"dup":14}],158:[function(require,module,exports){
 arguments[4][15][0].apply(exports,arguments)
-},{"bit-twiddle":156,"buffer":1,"dup":15}],159:[function(require,module,exports){
-arguments[4][16][0].apply(exports,arguments)
-},{"dup":16}],160:[function(require,module,exports){
-arguments[4][17][0].apply(exports,arguments)
-},{"dup":17,"weak-map":159}],161:[function(require,module,exports){
+},{"./do-bind.js":156,"dup":15}],159:[function(require,module,exports){
+arguments[4][11][0].apply(exports,arguments)
+},{"dup":11}],160:[function(require,module,exports){
+arguments[4][12][0].apply(exports,arguments)
+},{"dup":12,"weak-map":159}],161:[function(require,module,exports){
 arguments[4][18][0].apply(exports,arguments)
-},{"dup":18}],162:[function(require,module,exports){
-arguments[4][19][0].apply(exports,arguments)
-},{"./do-bind.js":161,"dup":19}],163:[function(require,module,exports){
-arguments[4][20][0].apply(exports,arguments)
-},{"./do-bind.js":161,"dup":20}],164:[function(require,module,exports){
-arguments[4][16][0].apply(exports,arguments)
-},{"dup":16}],165:[function(require,module,exports){
-arguments[4][17][0].apply(exports,arguments)
-},{"dup":17,"weak-map":164}],166:[function(require,module,exports){
-arguments[4][23][0].apply(exports,arguments)
-},{"./lib/vao-emulated.js":162,"./lib/vao-native.js":163,"dup":23,"webglew":165}],167:[function(require,module,exports){
+},{"./lib/vao-emulated.js":157,"./lib/vao-native.js":158,"dup":18,"webglew":160}],162:[function(require,module,exports){
 "use strict";
 var createBuffer = require("gl-buffer");
 var createVAO = require("gl-vao");
@@ -19881,7 +18272,7 @@ function createSpikes(gl, options) {
     spikes.update(options);
     return spikes;
 }
-},{"gl-buffer":150,"gl-vao":166,"glslify":169,"glslify/adapter.js":168}],168:[function(require,module,exports){
+},{"gl-buffer":145,"gl-vao":161,"glslify":164,"glslify/adapter.js":163}],163:[function(require,module,exports){
 module.exports = programify
 
 var shader = require('gl-shader-core')
@@ -19892,7 +18283,7 @@ function programify(vertex, fragment, uniforms, attributes) {
   }
 }
 
-},{"gl-shader-core":174}],169:[function(require,module,exports){
+},{"gl-shader-core":169}],164:[function(require,module,exports){
 module.exports = noop
 
 function noop() {
@@ -19902,7 +18293,7 @@ function noop() {
   )
 }
 
-},{}],170:[function(require,module,exports){
+},{}],165:[function(require,module,exports){
 'use strict'
 
 module.exports = createAttributeWrapper
@@ -19998,7 +18389,7 @@ function createAttributeWrapper(gl, program, attributes, doLink) {
   }
   return obj
 }
-},{}],171:[function(require,module,exports){
+},{}],166:[function(require,module,exports){
 'use strict'
 
 var dup = require('dup')
@@ -20180,11 +18571,11 @@ function createUniformWrapper(gl, program, uniforms, locations) {
   }
 }
 
-},{"./reflect":172,"dup":173}],172:[function(require,module,exports){
-arguments[4][144][0].apply(exports,arguments)
-},{"dup":144}],173:[function(require,module,exports){
-arguments[4][14][0].apply(exports,arguments)
-},{"dup":14}],174:[function(require,module,exports){
+},{"./reflect":167,"dup":168}],167:[function(require,module,exports){
+arguments[4][139][0].apply(exports,arguments)
+},{"dup":139}],168:[function(require,module,exports){
+arguments[4][9][0].apply(exports,arguments)
+},{"dup":9}],169:[function(require,module,exports){
 'use strict'
 
 var createUniformWrapper = require('./lib/create-uniforms')
@@ -20315,7 +18706,7 @@ function createShader(
 
 module.exports = createShader
 
-},{"./lib/create-attributes":170,"./lib/create-uniforms":171,"./lib/reflect":172}],175:[function(require,module,exports){
+},{"./lib/create-attributes":165,"./lib/create-uniforms":166,"./lib/reflect":167}],170:[function(require,module,exports){
 module.exports = programify
 
 function programify(vertex, fragment, uniforms, attributes) {
@@ -20327,7 +18718,7 @@ function programify(vertex, fragment, uniforms, attributes) {
   };
 }
 
-},{}],176:[function(require,module,exports){
+},{}],171:[function(require,module,exports){
 'use strict'
 
 module.exports = mouseListen
@@ -20447,7 +18838,7 @@ function mouseListen(element, callback) {
     window.addEventListener('keypress', handleMods)
   }
 }
-},{"mouse-event":177}],177:[function(require,module,exports){
+},{"mouse-event":172}],172:[function(require,module,exports){
 'use strict'
 
 function mouseButtons(ev) {
@@ -20516,7 +18907,7 @@ function mouseRelativeY(ev) {
   return 0
 }
 exports.y = mouseRelativeY
-},{}],178:[function(require,module,exports){
+},{}],173:[function(require,module,exports){
 module.exports = function parseUnit(str, out) {
     if (!out)
         out = [ 0, '' ]
@@ -20527,7 +18918,7 @@ module.exports = function parseUnit(str, out) {
     out[1] = str.match(/[\d.\-\+]*\s*(.*)/)[1] || ''
     return out
 }
-},{}],179:[function(require,module,exports){
+},{}],174:[function(require,module,exports){
 'use strict'
 
 var parseUnit = require('parse-unit')
@@ -20588,7 +18979,7 @@ function toPX(str, element) {
   }
   return 1
 }
-},{"parse-unit":178}],180:[function(require,module,exports){
+},{"parse-unit":173}],175:[function(require,module,exports){
 'use strict'
 
 var toPX = require('to-px')
@@ -20627,7 +19018,7 @@ function mouseWheelListen(element, callback, noScroll) {
     }
   })
 }
-},{"to-px":179}],181:[function(require,module,exports){
+},{"to-px":174}],176:[function(require,module,exports){
 'use strict'
 
 module.exports = quatFromFrame
@@ -20669,7 +19060,7 @@ function quatFromFrame(
   }
   return out
 }
-},{}],182:[function(require,module,exports){
+},{}],177:[function(require,module,exports){
 'use strict'
 
 module.exports = createFilteredVector
@@ -20956,9 +19347,9 @@ function createFilteredVector(initState, initVelocity, initTime) {
       return new FilteredVector(initState, initVelocity, initTime)
   }
 }
-},{"binary-search-bounds":183,"cubic-hermite":184}],183:[function(require,module,exports){
-arguments[4][72][0].apply(exports,arguments)
-},{"dup":72}],184:[function(require,module,exports){
+},{"binary-search-bounds":178,"cubic-hermite":179}],178:[function(require,module,exports){
+arguments[4][67][0].apply(exports,arguments)
+},{"dup":67}],179:[function(require,module,exports){
 "use strict"
 
 function dcubicHermite(p0, v0, p1, v1, t, f) {
@@ -20998,7 +19389,7 @@ function cubicHermite(p0, v0, p1, v1, t, f) {
 
 module.exports = cubicHermite
 module.exports.derivative = dcubicHermite
-},{}],185:[function(require,module,exports){
+},{}],180:[function(require,module,exports){
 'use strict'
 
 module.exports = createOrbitController
@@ -21399,7 +19790,7 @@ function createOrbitController(options) {
 
   return result
 }
-},{"./lib/quatFromFrame":181,"filtered-vector":182,"gl-mat4/fromQuat":126,"gl-mat4/invert":128,"gl-mat4/lookAt":129}],186:[function(require,module,exports){
+},{"./lib/quatFromFrame":176,"filtered-vector":177,"gl-mat4/fromQuat":121,"gl-mat4/invert":123,"gl-mat4/lookAt":124}],181:[function(require,module,exports){
 (function (global){
 module.exports =
   global.performance &&
@@ -21410,7 +19801,7 @@ module.exports =
   }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],187:[function(require,module,exports){
+},{}],182:[function(require,module,exports){
 'use strict'
 
 module.exports = createOrbiter
@@ -21638,7 +20029,7 @@ function createOrbiter(element, options) {
 
   return orbiter
 }
-},{"mouse-change":176,"mouse-wheel":180,"orbit-camera-controller":185,"right-now":186}],188:[function(require,module,exports){
+},{"mouse-change":171,"mouse-wheel":175,"orbit-camera-controller":180,"right-now":181}],183:[function(require,module,exports){
 'use strict'
 
 module.exports = createScene
@@ -21695,9 +20086,10 @@ function createScene(options) {
   if(!canvas) {
     canvas = document.createElement('canvas')
     if(options.container) {
+      var container = options.container
       canvas.width = container.clientWidth * pixelRatio
       canvas.height = container.clientHeight * pixelRatio
-      options.container.appendChild(canvas)
+      container.appendChild(canvas)
     } else {
       canvas.width = window.innerWidth * pixelRatio
       canvas.height = window.innerHeight * pixelRatio
@@ -21707,7 +20099,7 @@ function createScene(options) {
 
   var gl = options.gl
   if(!gl) {
-    var glOptions = options.glOptions || { premultipliedAlpha: true }
+    var glOptions = options.glOptions || { premultipliedAlpha: true, antialias: true }
     gl = canvas.getContext('webgl', glOptions)
   }
   if(!gl) {
@@ -21767,6 +20159,9 @@ function createScene(options) {
   }
 
   var pickDirty = true
+
+  var viewShape = [ gl.drawingBufferWidth, gl.drawingBufferHeight ]
+
   //Create scene object
   var scene = {
     gl:           gl,
@@ -21779,6 +20174,7 @@ function createScene(options) {
     spikes:       spikes,
     bounds:       bounds,
     objects:      objects,
+    shape:        viewShape,
     pickRadius:   options.pickRadius || 10,
     zNear:        options.zNear || 0.01,
     zFar:         options.zFar  || 1000,
@@ -21793,11 +20189,9 @@ function createScene(options) {
     onselect:     options.onselect || null,
     onrender:     options.onrender || null,
     onclick:      options.onclick  || null,
-    shape:        viewShape,
     cameraParams: cameraParams
   }
 
-  var viewShape = [ gl.drawingBufferWidth, gl.drawingBufferHeight ]
   var pickShape = [ (gl.drawingBufferWidth/scene.pixelRatio)|0, (gl.drawingBufferHeight/scene.pixelRatio)|0 ]
 
   function resizeListener() {
@@ -21867,6 +20261,8 @@ function createScene(options) {
 
   scene.update = function(options) {
     options = options || {}
+    dirty = true
+    pickDirty = true
   }
 
   scene.add = function(obj) {
@@ -22056,10 +20452,14 @@ function createScene(options) {
     if(scene.autoBounds) {
       var boundsChanged = false
       for(var j=0; j<3; ++j) {
-        if(lo[j] === Infinity || hi[j] === -Infinity) {
+        if(hi[j] < lo[j]) {
           lo[j] = -1
           hi[j] = 1
         } else {
+          if(lo[j] === hi[j]) {
+            lo[j] -= 1
+            hi[j] = 1
+          }
           var padding = 0.05 * (hi[j] - lo[j])
           lo[j] = lo[j] - padding
           hi[j] = hi[j] + padding
@@ -22278,7 +20678,7 @@ function createScene(options) {
 
   return scene
 }
-},{"./lib/shader":6,"a-big-triangle":25,"gl-axes3d":26,"gl-axes3d/properties":113,"gl-fbo":114,"gl-mat4/perspective":131,"gl-select-static":140,"gl-spikes3d":167,"mouse-change":176,"orbiter":187}],189:[function(require,module,exports){
+},{"./lib/shader":1,"a-big-triangle":20,"gl-axes3d":21,"gl-axes3d/properties":108,"gl-fbo":109,"gl-mat4/perspective":126,"gl-select-static":135,"gl-spikes3d":162,"mouse-change":171,"orbiter":182}],184:[function(require,module,exports){
 var createShader = require("gl-shader");
 var glslify = require("glslify");
 var forward = require("glslify/simple-adapter.js")("\n#define GLSLIFY 1\n\nprecision mediump float;\nattribute vec4 uv;\nattribute vec2 f;\nattribute vec3 normal;\nuniform mat4 model, view, projection;\nuniform vec3 lightPosition, eyePosition;\nvarying float value, kill;\nvarying vec3 worldCoordinate;\nvarying vec2 planeCoordinate;\nvarying vec3 lightDirection, eyeDirection, surfaceNormal;\nvoid main() {\n  vec4 worldPosition = model * vec4(uv.zw, f.x, 1.0);\n  vec4 clipPosition = projection * view * worldPosition;\n  gl_Position = clipPosition;\n  value = f.x;\n  kill = f.y;\n  worldCoordinate = vec3(uv.zw, f.x);\n  planeCoordinate = uv.xy;\n  lightDirection = lightPosition - worldCoordinate;\n  eyeDirection = eyePosition - worldCoordinate;\n  surfaceNormal = normal;\n}", "\n#define GLSLIFY 1\n\nprecision mediump float;\nfloat b_x_beckmannDistribution(float x, float roughness) {\n  float NdotH = max(x, 0.0001);\n  float cos2Alpha = NdotH * NdotH;\n  float tan2Alpha = (cos2Alpha - 1.0) / cos2Alpha;\n  float roughness2 = roughness * roughness;\n  float denom = 3.141592653589793 * roughness2 * cos2Alpha * cos2Alpha;\n  return exp(tan2Alpha / roughness2) / denom;\n}\nfloat a_x_cookTorranceSpecular(vec3 lightDirection, vec3 viewDirection, vec3 surfaceNormal, float roughness, float fresnel) {\n  float VdotN = max(dot(viewDirection, surfaceNormal), 0.0);\n  float LdotN = max(dot(lightDirection, surfaceNormal), 0.0);\n  vec3 H = normalize(lightDirection + viewDirection);\n  float NdotH = max(dot(surfaceNormal, H), 0.0);\n  float VdotH = max(dot(viewDirection, H), 0.000001);\n  float LdotH = max(dot(lightDirection, H), 0.000001);\n  float G1 = (2.0 * NdotH * VdotN) / VdotH;\n  float G2 = (2.0 * NdotH * LdotN) / LdotH;\n  float G = min(1.0, min(G1, G2));\n  float D = b_x_beckmannDistribution(NdotH, roughness);\n  float F = pow(1.0 - VdotN, fresnel);\n  return G * F * D / max(3.14159265 * VdotN, 0.000001);\n}\nuniform vec3 lowerBound, upperBound;\nuniform float contourTint;\nuniform vec4 contourColor;\nuniform sampler2D colormap;\nuniform vec3 clipBounds[2];\nuniform float roughness, fresnel, kambient, kdiffuse, kspecular, opacity;\nvarying float value, kill;\nvarying vec3 worldCoordinate;\nvarying vec3 lightDirection, eyeDirection, surfaceNormal;\nvoid main() {\n  if(kill > 0.0 || any(lessThan(worldCoordinate, clipBounds[0])) || any(greaterThan(worldCoordinate, clipBounds[1]))) {\n    discard;\n  }\n  vec3 N = normalize(surfaceNormal);\n  vec3 V = normalize(eyeDirection);\n  vec3 L = normalize(lightDirection);\n  if(gl_FrontFacing) {\n    N = -N;\n  }\n  float specular = a_x_cookTorranceSpecular(L, V, N, roughness, fresnel);\n  float diffuse = min(kambient + kdiffuse * max(dot(N, L), 0.0), 1.0);\n  float interpValue = (value - lowerBound.z) / (upperBound.z - lowerBound.z);\n  vec4 surfaceColor = texture2D(colormap, vec2(interpValue, interpValue));\n  vec4 litColor = surfaceColor.a * vec4(diffuse * surfaceColor.rgb + kspecular * vec3(1, 1, 1) * specular, 1.0);\n  gl_FragColor = mix(litColor, contourColor, contourTint) * opacity;\n}", [{"name":"model","type":"mat4"},{"name":"view","type":"mat4"},{"name":"projection","type":"mat4"},{"name":"lightPosition","type":"vec3"},{"name":"eyePosition","type":"vec3"},{"name":"lowerBound","type":"vec3"},{"name":"upperBound","type":"vec3"},{"name":"contourTint","type":"float"},{"name":"contourColor","type":"vec4"},{"name":"colormap","type":"sampler2D"},{"name":"clipBounds[0]","type":"vec3"},{"name":"clipBounds[1]","type":"vec3"},{"name":"roughness","type":"float"},{"name":"fresnel","type":"float"},{"name":"kambient","type":"float"},{"name":"kdiffuse","type":"float"},{"name":"kspecular","type":"float"},{"name":"opacity","type":"float"}], [{"name":"uv","type":"vec4"},{"name":"f","type":"vec2"},{"name":"normal","type":"vec3"}]), contour = require("glslify/simple-adapter.js")("\n#define GLSLIFY 1\n\nprecision mediump float;\nattribute vec4 uv;\nuniform mat3 permutation;\nuniform mat4 model, view, projection;\nuniform float height, zOffset;\nvarying float value, kill;\nvarying vec3 worldCoordinate;\nvarying vec2 planeCoordinate;\nvarying vec3 lightDirection, eyeDirection, surfaceNormal;\nvoid main() {\n  vec3 dataCoordinate = permutation * vec3(uv.xy, height);\n  vec4 worldPosition = model * vec4(dataCoordinate, 1.0);\n  vec4 clipPosition = projection * view * worldPosition;\n  clipPosition.z = clipPosition.z + zOffset;\n  gl_Position = clipPosition;\n  value = height;\n  kill = -1.0;\n  worldCoordinate = dataCoordinate;\n  planeCoordinate = uv.zw;\n  surfaceNormal = vec3(1, 0, 0);\n  eyeDirection = vec3(0, 1, 0);\n  lightDirection = vec3(0, 0, 1);\n}", "\n#define GLSLIFY 1\n\nprecision mediump float;\nfloat b_x_beckmannDistribution(float x, float roughness) {\n  float NdotH = max(x, 0.0001);\n  float cos2Alpha = NdotH * NdotH;\n  float tan2Alpha = (cos2Alpha - 1.0) / cos2Alpha;\n  float roughness2 = roughness * roughness;\n  float denom = 3.141592653589793 * roughness2 * cos2Alpha * cos2Alpha;\n  return exp(tan2Alpha / roughness2) / denom;\n}\nfloat a_x_cookTorranceSpecular(vec3 lightDirection, vec3 viewDirection, vec3 surfaceNormal, float roughness, float fresnel) {\n  float VdotN = max(dot(viewDirection, surfaceNormal), 0.0);\n  float LdotN = max(dot(lightDirection, surfaceNormal), 0.0);\n  vec3 H = normalize(lightDirection + viewDirection);\n  float NdotH = max(dot(surfaceNormal, H), 0.0);\n  float VdotH = max(dot(viewDirection, H), 0.000001);\n  float LdotH = max(dot(lightDirection, H), 0.000001);\n  float G1 = (2.0 * NdotH * VdotN) / VdotH;\n  float G2 = (2.0 * NdotH * LdotN) / LdotH;\n  float G = min(1.0, min(G1, G2));\n  float D = b_x_beckmannDistribution(NdotH, roughness);\n  float F = pow(1.0 - VdotN, fresnel);\n  return G * F * D / max(3.14159265 * VdotN, 0.000001);\n}\nuniform vec3 lowerBound, upperBound;\nuniform float contourTint;\nuniform vec4 contourColor;\nuniform sampler2D colormap;\nuniform vec3 clipBounds[2];\nuniform float roughness, fresnel, kambient, kdiffuse, kspecular, opacity;\nvarying float value, kill;\nvarying vec3 worldCoordinate;\nvarying vec3 lightDirection, eyeDirection, surfaceNormal;\nvoid main() {\n  if(kill > 0.0 || any(lessThan(worldCoordinate, clipBounds[0])) || any(greaterThan(worldCoordinate, clipBounds[1]))) {\n    discard;\n  }\n  vec3 N = normalize(surfaceNormal);\n  vec3 V = normalize(eyeDirection);\n  vec3 L = normalize(lightDirection);\n  if(gl_FrontFacing) {\n    N = -N;\n  }\n  float specular = a_x_cookTorranceSpecular(L, V, N, roughness, fresnel);\n  float diffuse = min(kambient + kdiffuse * max(dot(N, L), 0.0), 1.0);\n  float interpValue = (value - lowerBound.z) / (upperBound.z - lowerBound.z);\n  vec4 surfaceColor = texture2D(colormap, vec2(interpValue, interpValue));\n  vec4 litColor = surfaceColor.a * vec4(diffuse * surfaceColor.rgb + kspecular * vec3(1, 1, 1) * specular, 1.0);\n  gl_FragColor = mix(litColor, contourColor, contourTint) * opacity;\n}", [{"name":"permutation","type":"mat3"},{"name":"model","type":"mat4"},{"name":"view","type":"mat4"},{"name":"projection","type":"mat4"},{"name":"height","type":"float"},{"name":"zOffset","type":"float"},{"name":"lowerBound","type":"vec3"},{"name":"upperBound","type":"vec3"},{"name":"contourTint","type":"float"},{"name":"contourColor","type":"vec4"},{"name":"colormap","type":"sampler2D"},{"name":"clipBounds[0]","type":"vec3"},{"name":"clipBounds[1]","type":"vec3"},{"name":"roughness","type":"float"},{"name":"fresnel","type":"float"},{"name":"kambient","type":"float"},{"name":"kdiffuse","type":"float"},{"name":"kspecular","type":"float"},{"name":"opacity","type":"float"}], [{"name":"uv","type":"vec4"}]), pick = require("glslify/simple-adapter.js")("\n#define GLSLIFY 1\n\nprecision mediump float;\nattribute vec4 uv;\nattribute vec2 f;\nattribute vec3 normal;\nuniform mat4 model, view, projection;\nuniform vec3 lightPosition, eyePosition;\nvarying float value, kill;\nvarying vec3 worldCoordinate;\nvarying vec2 planeCoordinate;\nvarying vec3 lightDirection, eyeDirection, surfaceNormal;\nvoid main() {\n  vec4 worldPosition = model * vec4(uv.zw, f.x, 1.0);\n  vec4 clipPosition = projection * view * worldPosition;\n  gl_Position = clipPosition;\n  value = f.x;\n  kill = f.y;\n  worldCoordinate = vec3(uv.zw, f.x);\n  planeCoordinate = uv.xy;\n  lightDirection = lightPosition - worldCoordinate;\n  eyeDirection = eyePosition - worldCoordinate;\n  surfaceNormal = normal;\n}", "\n#define GLSLIFY 1\n\nprecision mediump float;\nuniform vec2 shape;\nuniform vec3 clipBounds[2];\nuniform float pickId;\nvarying float value, kill;\nvarying vec3 worldCoordinate;\nvarying vec2 planeCoordinate;\nvarying vec3 surfaceNormal;\nvec2 splitFloat(float v) {\n  float vh = 255.0 * v;\n  float upper = floor(vh);\n  float lower = fract(vh);\n  return vec2(upper / 255.0, floor(lower * 16.0) / 16.0);\n}\nvoid main() {\n  if(kill > 0.0 || any(lessThan(worldCoordinate, clipBounds[0])) || any(greaterThan(worldCoordinate, clipBounds[1]))) {\n    discard;\n  }\n  vec2 ux = splitFloat(planeCoordinate.x / shape.x);\n  vec2 uy = splitFloat(planeCoordinate.y / shape.y);\n  gl_FragColor = vec4(pickId, ux.x, uy.x, ux.y + (uy.y / 16.0));\n}", [{"name":"model","type":"mat4"},{"name":"view","type":"mat4"},{"name":"projection","type":"mat4"},{"name":"lightPosition","type":"vec3"},{"name":"eyePosition","type":"vec3"},{"name":"shape","type":"vec2"},{"name":"clipBounds[0]","type":"vec3"},{"name":"clipBounds[1]","type":"vec3"},{"name":"pickId","type":"float"}], [{"name":"uv","type":"vec4"},{"name":"f","type":"vec2"},{"name":"normal","type":"vec3"}]), pickContour = require("glslify/simple-adapter.js")("\n#define GLSLIFY 1\n\nprecision mediump float;\nattribute vec4 uv;\nuniform mat3 permutation;\nuniform mat4 model, view, projection;\nuniform float height, zOffset;\nvarying float value, kill;\nvarying vec3 worldCoordinate;\nvarying vec2 planeCoordinate;\nvarying vec3 lightDirection, eyeDirection, surfaceNormal;\nvoid main() {\n  vec3 dataCoordinate = permutation * vec3(uv.xy, height);\n  vec4 worldPosition = model * vec4(dataCoordinate, 1.0);\n  vec4 clipPosition = projection * view * worldPosition;\n  clipPosition.z = clipPosition.z + zOffset;\n  gl_Position = clipPosition;\n  value = height;\n  kill = -1.0;\n  worldCoordinate = dataCoordinate;\n  planeCoordinate = uv.zw;\n  surfaceNormal = vec3(1, 0, 0);\n  eyeDirection = vec3(0, 1, 0);\n  lightDirection = vec3(0, 0, 1);\n}", "\n#define GLSLIFY 1\n\nprecision mediump float;\nuniform vec2 shape;\nuniform vec3 clipBounds[2];\nuniform float pickId;\nvarying float value, kill;\nvarying vec3 worldCoordinate;\nvarying vec2 planeCoordinate;\nvarying vec3 surfaceNormal;\nvec2 splitFloat(float v) {\n  float vh = 255.0 * v;\n  float upper = floor(vh);\n  float lower = fract(vh);\n  return vec2(upper / 255.0, floor(lower * 16.0) / 16.0);\n}\nvoid main() {\n  if(kill > 0.0 || any(lessThan(worldCoordinate, clipBounds[0])) || any(greaterThan(worldCoordinate, clipBounds[1]))) {\n    discard;\n  }\n  vec2 ux = splitFloat(planeCoordinate.x / shape.x);\n  vec2 uy = splitFloat(planeCoordinate.y / shape.y);\n  gl_FragColor = vec4(pickId, ux.x, uy.x, ux.y + (uy.y / 16.0));\n}", [{"name":"permutation","type":"mat3"},{"name":"model","type":"mat4"},{"name":"view","type":"mat4"},{"name":"projection","type":"mat4"},{"name":"height","type":"float"},{"name":"zOffset","type":"float"},{"name":"shape","type":"vec2"},{"name":"clipBounds[0]","type":"vec3"},{"name":"clipBounds[1]","type":"vec3"},{"name":"pickId","type":"float"}], [{"name":"uv","type":"vec4"}]);
@@ -22310,14 +20710,14 @@ exports.createPickContourShader = function(gl) {
     shader.attributes.uv.location = 0;
     return shader;
 };
-},{"gl-shader":201,"glslify":219,"glslify/simple-adapter.js":220}],190:[function(require,module,exports){
-arguments[4][72][0].apply(exports,arguments)
-},{"dup":72}],191:[function(require,module,exports){
-arguments[4][13][0].apply(exports,arguments)
-},{"dup":13}],192:[function(require,module,exports){
+},{"gl-shader":196,"glslify":214,"glslify/simple-adapter.js":215}],185:[function(require,module,exports){
+arguments[4][67][0].apply(exports,arguments)
+},{"dup":67}],186:[function(require,module,exports){
+arguments[4][8][0].apply(exports,arguments)
+},{"dup":8}],187:[function(require,module,exports){
 module.exports={"jet":[{"index":0,"rgb":[0,0,131]},{"index":0.125,"rgb":[0,60,170]},{"index":0.375,"rgb":[5,255,255]},{"index":0.625,"rgb":[255,255,0]},{"index":0.875,"rgb":[250,0,0]},{"index":1,"rgb":[128,0,0]}],"hsv":[{"index":0,"rgb":[255,0,0]},{"index":0.169,"rgb":[253,255,2]},{"index":0.173,"rgb":[247,255,2]},{"index":0.337,"rgb":[0,252,4]},{"index":0.341,"rgb":[0,252,10]},{"index":0.506,"rgb":[1,249,255]},{"index":0.671,"rgb":[2,0,253]},{"index":0.675,"rgb":[8,0,253]},{"index":0.839,"rgb":[255,0,251]},{"index":0.843,"rgb":[255,0,245]},{"index":1,"rgb":[255,0,6]}],"hot":[{"index":0,"rgb":[0,0,0]},{"index":0.3,"rgb":[230,0,0]},{"index":0.6,"rgb":[255,210,0]},{"index":1,"rgb":[255,255,255]}],"cool":[{"index":0,"rgb":[0,255,255]},{"index":1,"rgb":[255,0,255]}],"spring":[{"index":0,"rgb":[255,0,255]},{"index":1,"rgb":[255,255,0]}],"summer":[{"index":0,"rgb":[0,128,102]},{"index":1,"rgb":[255,255,102]}],"autumn":[{"index":0,"rgb":[255,0,0]},{"index":1,"rgb":[255,255,0]}],"winter":[{"index":0,"rgb":[0,0,255]},{"index":1,"rgb":[0,255,128]}],"bone":[{"index":0,"rgb":[0,0,0]},{"index":0.376,"rgb":[84,84,116]},{"index":0.753,"rgb":[169,200,200]},{"index":1,"rgb":[255,255,255]}],"copper":[{"index":0,"rgb":[0,0,0]},{"index":0.804,"rgb":[255,160,102]},{"index":1,"rgb":[255,199,127]}],"greys":[{"index":0,"rgb":[0,0,0]},{"index":1,"rgb":[255,255,255]}],"yignbu":[{"index":0,"rgb":[8,29,88]},{"index":0.125,"rgb":[37,52,148]},{"index":0.25,"rgb":[34,94,168]},{"index":0.375,"rgb":[29,145,192]},{"index":0.5,"rgb":[65,182,196]},{"index":0.625,"rgb":[127,205,187]},{"index":0.75,"rgb":[199,233,180]},{"index":0.875,"rgb":[237,248,217]},{"index":1,"rgb":[255,255,217]}],"greens":[{"index":0,"rgb":[0,68,27]},{"index":0.125,"rgb":[0,109,44]},{"index":0.25,"rgb":[35,139,69]},{"index":0.375,"rgb":[65,171,93]},{"index":0.5,"rgb":[116,196,118]},{"index":0.625,"rgb":[161,217,155]},{"index":0.75,"rgb":[199,233,192]},{"index":0.875,"rgb":[229,245,224]},{"index":1,"rgb":[247,252,245]}],"yiorrd":[{"index":0,"rgb":[128,0,38]},{"index":0.125,"rgb":[189,0,38]},{"index":0.25,"rgb":[227,26,28]},{"index":0.375,"rgb":[252,78,42]},{"index":0.5,"rgb":[253,141,60]},{"index":0.625,"rgb":[254,178,76]},{"index":0.75,"rgb":[254,217,118]},{"index":0.875,"rgb":[255,237,160]},{"index":1,"rgb":[255,255,204]}],"bluered":[{"index":0,"rgb":[0,0,255]},{"index":1,"rgb":[255,0,0]}],"rdbu":[{"index":0,"rgb":[5,10,172]},{"index":0.35,"rgb":[106,137,247]},{"index":0.5,"rgb":[190,190,190]},{"index":0.6,"rgb":[220,170,132]},{"index":0.7,"rgb":[230,145,90]},{"index":1,"rgb":[178,10,28]}],"picnic":[{"index":0,"rgb":[0,0,255]},{"index":0.1,"rgb":[51,153,255]},{"index":0.2,"rgb":[102,204,255]},{"index":0.3,"rgb":[153,204,255]},{"index":0.4,"rgb":[204,204,255]},{"index":0.5,"rgb":[255,255,255]},{"index":0.6,"rgb":[255,204,255]},{"index":0.7,"rgb":[255,153,255]},{"index":0.8,"rgb":[255,102,204]},{"index":0.9,"rgb":[255,102,102]},{"index":1,"rgb":[255,0,0]}],"rainbow":[{"index":0,"rgb":[150,0,90]},{"index":0.125,"rgb":[0,0,200]},{"index":0.25,"rgb":[0,25,255]},{"index":0.375,"rgb":[0,152,255]},{"index":0.5,"rgb":[44,255,150]},{"index":0.625,"rgb":[151,255,0]},{"index":0.75,"rgb":[255,234,0]},{"index":0.875,"rgb":[255,111,0]},{"index":1,"rgb":[255,0,0]}],"portland":[{"index":0,"rgb":[12,51,131]},{"index":0.25,"rgb":[10,136,186]},{"index":0.5,"rgb":[242,211,56]},{"index":0.75,"rgb":[242,143,56]},{"index":1,"rgb":[217,30,30]}],"blackbody":[{"index":0,"rgb":[0,0,0]},{"index":0.2,"rgb":[230,0,0]},{"index":0.4,"rgb":[230,210,0]},{"index":0.7,"rgb":[255,255,255]},{"index":1,"rgb":[160,200,255]}],"earth":[{"index":0,"rgb":[0,0,130]},{"index":0.1,"rgb":[0,180,180]},{"index":0.2,"rgb":[40,210,40]},{"index":0.4,"rgb":[230,230,50]},{"index":0.6,"rgb":[120,70,20]},{"index":1,"rgb":[255,255,255]}],"electric":[{"index":0,"rgb":[0,0,0]},{"index":0.15,"rgb":[30,0,100]},{"index":0.4,"rgb":[120,0,100]},{"index":0.6,"rgb":[160,90,0]},{"index":0.8,"rgb":[230,200,0]},{"index":1,"rgb":[255,250,220]}], "alpha": [{"index":0, "rgb": [255,255,255,0]},{"index":0, "rgb": [255,255,255,1]}]}
 
-},{}],193:[function(require,module,exports){
+},{}],188:[function(require,module,exports){
 /*
  * Ben Postlethwaite
  * January 2013
@@ -22433,7 +20833,7 @@ function rgbaStr (rgba) {
     return 'rgba(' + rgba.join(',') + ')';
 }
 
-},{"./colorScales.json":192,"arraytools":194}],194:[function(require,module,exports){
+},{"./colorScales.json":187,"arraytools":189}],189:[function(require,module,exports){
 'use strict';
 
 var arraytools  = function () {
@@ -22622,59 +21022,59 @@ var arraytools  = function () {
 
 module.exports = arraytools();
 
-},{}],195:[function(require,module,exports){
-arguments[4][14][0].apply(exports,arguments)
-},{"dup":14}],196:[function(require,module,exports){
-arguments[4][7][0].apply(exports,arguments)
-},{"dup":7,"ndarray":252,"ndarray-ops":226,"typedarray-pool":250,"webglew":198}],197:[function(require,module,exports){
-arguments[4][16][0].apply(exports,arguments)
-},{"dup":16}],198:[function(require,module,exports){
-arguments[4][17][0].apply(exports,arguments)
-},{"dup":17,"weak-map":197}],199:[function(require,module,exports){
-arguments[4][128][0].apply(exports,arguments)
-},{"dup":128}],200:[function(require,module,exports){
-arguments[4][130][0].apply(exports,arguments)
-},{"dup":130}],201:[function(require,module,exports){
-arguments[4][141][0].apply(exports,arguments)
-},{"./lib/create-attributes":202,"./lib/create-uniforms":203,"./lib/reflect":204,"./lib/runtime-reflect":205,"./lib/shader-cache":206,"dup":141}],202:[function(require,module,exports){
-arguments[4][142][0].apply(exports,arguments)
-},{"dup":142}],203:[function(require,module,exports){
-arguments[4][143][0].apply(exports,arguments)
-},{"./reflect":204,"dup":143}],204:[function(require,module,exports){
-arguments[4][144][0].apply(exports,arguments)
-},{"dup":144}],205:[function(require,module,exports){
-arguments[4][145][0].apply(exports,arguments)
-},{"dup":145}],206:[function(require,module,exports){
-arguments[4][146][0].apply(exports,arguments)
-},{"dup":146,"weakmap-shim":209}],207:[function(require,module,exports){
-arguments[4][147][0].apply(exports,arguments)
-},{"./hidden-store.js":208,"dup":147}],208:[function(require,module,exports){
-arguments[4][148][0].apply(exports,arguments)
-},{"dup":148}],209:[function(require,module,exports){
-arguments[4][149][0].apply(exports,arguments)
-},{"./create-store.js":207,"dup":149}],210:[function(require,module,exports){
-arguments[4][16][0].apply(exports,arguments)
-},{"dup":16}],211:[function(require,module,exports){
-arguments[4][17][0].apply(exports,arguments)
-},{"dup":17,"weak-map":210}],212:[function(require,module,exports){
+},{}],190:[function(require,module,exports){
+arguments[4][9][0].apply(exports,arguments)
+},{"dup":9}],191:[function(require,module,exports){
+arguments[4][2][0].apply(exports,arguments)
+},{"dup":2,"ndarray":247,"ndarray-ops":221,"typedarray-pool":245,"webglew":193}],192:[function(require,module,exports){
+arguments[4][11][0].apply(exports,arguments)
+},{"dup":11}],193:[function(require,module,exports){
+arguments[4][12][0].apply(exports,arguments)
+},{"dup":12,"weak-map":192}],194:[function(require,module,exports){
 arguments[4][123][0].apply(exports,arguments)
-},{"dup":123,"ndarray":252,"ndarray-ops":226,"typedarray-pool":250,"webglew":211}],213:[function(require,module,exports){
+},{"dup":123}],195:[function(require,module,exports){
+arguments[4][125][0].apply(exports,arguments)
+},{"dup":125}],196:[function(require,module,exports){
+arguments[4][136][0].apply(exports,arguments)
+},{"./lib/create-attributes":197,"./lib/create-uniforms":198,"./lib/reflect":199,"./lib/runtime-reflect":200,"./lib/shader-cache":201,"dup":136}],197:[function(require,module,exports){
+arguments[4][137][0].apply(exports,arguments)
+},{"dup":137}],198:[function(require,module,exports){
+arguments[4][138][0].apply(exports,arguments)
+},{"./reflect":199,"dup":138}],199:[function(require,module,exports){
+arguments[4][139][0].apply(exports,arguments)
+},{"dup":139}],200:[function(require,module,exports){
+arguments[4][140][0].apply(exports,arguments)
+},{"dup":140}],201:[function(require,module,exports){
+arguments[4][141][0].apply(exports,arguments)
+},{"dup":141,"weakmap-shim":204}],202:[function(require,module,exports){
+arguments[4][142][0].apply(exports,arguments)
+},{"./hidden-store.js":203,"dup":142}],203:[function(require,module,exports){
+arguments[4][143][0].apply(exports,arguments)
+},{"dup":143}],204:[function(require,module,exports){
+arguments[4][144][0].apply(exports,arguments)
+},{"./create-store.js":202,"dup":144}],205:[function(require,module,exports){
+arguments[4][11][0].apply(exports,arguments)
+},{"dup":11}],206:[function(require,module,exports){
+arguments[4][12][0].apply(exports,arguments)
+},{"dup":12,"weak-map":205}],207:[function(require,module,exports){
+arguments[4][118][0].apply(exports,arguments)
+},{"dup":118,"ndarray":247,"ndarray-ops":221,"typedarray-pool":245,"webglew":206}],208:[function(require,module,exports){
+arguments[4][13][0].apply(exports,arguments)
+},{"dup":13}],209:[function(require,module,exports){
+arguments[4][14][0].apply(exports,arguments)
+},{"./do-bind.js":208,"dup":14}],210:[function(require,module,exports){
+arguments[4][15][0].apply(exports,arguments)
+},{"./do-bind.js":208,"dup":15}],211:[function(require,module,exports){
+arguments[4][11][0].apply(exports,arguments)
+},{"dup":11}],212:[function(require,module,exports){
+arguments[4][12][0].apply(exports,arguments)
+},{"dup":12,"weak-map":211}],213:[function(require,module,exports){
 arguments[4][18][0].apply(exports,arguments)
-},{"dup":18}],214:[function(require,module,exports){
-arguments[4][19][0].apply(exports,arguments)
-},{"./do-bind.js":213,"dup":19}],215:[function(require,module,exports){
-arguments[4][20][0].apply(exports,arguments)
-},{"./do-bind.js":213,"dup":20}],216:[function(require,module,exports){
-arguments[4][16][0].apply(exports,arguments)
-},{"dup":16}],217:[function(require,module,exports){
-arguments[4][17][0].apply(exports,arguments)
-},{"dup":17,"weak-map":216}],218:[function(require,module,exports){
-arguments[4][23][0].apply(exports,arguments)
-},{"./lib/vao-emulated.js":214,"./lib/vao-native.js":215,"dup":23,"webglew":217}],219:[function(require,module,exports){
-arguments[4][169][0].apply(exports,arguments)
-},{"dup":169}],220:[function(require,module,exports){
-arguments[4][175][0].apply(exports,arguments)
-},{"dup":175}],221:[function(require,module,exports){
+},{"./lib/vao-emulated.js":209,"./lib/vao-native.js":210,"dup":18,"webglew":212}],214:[function(require,module,exports){
+arguments[4][164][0].apply(exports,arguments)
+},{"dup":164}],215:[function(require,module,exports){
+arguments[4][170][0].apply(exports,arguments)
+},{"dup":170}],216:[function(require,module,exports){
 'use strict'
 
 module.exports      = gradient
@@ -22972,25 +21372,25 @@ function gradient(out, inp, bc) {
   var cached = generateGradient(bc)
   return cached(out, inp)
 }
-},{"cwise-compiler":222,"dup":195}],222:[function(require,module,exports){
-arguments[4][9][0].apply(exports,arguments)
-},{"./lib/thunk.js":224,"dup":9}],223:[function(require,module,exports){
-arguments[4][10][0].apply(exports,arguments)
-},{"dup":10,"uniq":225}],224:[function(require,module,exports){
-arguments[4][11][0].apply(exports,arguments)
-},{"./compile.js":223,"dup":11}],225:[function(require,module,exports){
-arguments[4][12][0].apply(exports,arguments)
-},{"dup":12}],226:[function(require,module,exports){
-arguments[4][8][0].apply(exports,arguments)
-},{"cwise-compiler":227,"dup":8}],227:[function(require,module,exports){
-arguments[4][9][0].apply(exports,arguments)
-},{"./lib/thunk.js":229,"dup":9}],228:[function(require,module,exports){
-arguments[4][10][0].apply(exports,arguments)
-},{"dup":10,"uniq":230}],229:[function(require,module,exports){
-arguments[4][11][0].apply(exports,arguments)
-},{"./compile.js":228,"dup":11}],230:[function(require,module,exports){
-arguments[4][12][0].apply(exports,arguments)
-},{"dup":12}],231:[function(require,module,exports){
+},{"cwise-compiler":217,"dup":190}],217:[function(require,module,exports){
+arguments[4][4][0].apply(exports,arguments)
+},{"./lib/thunk.js":219,"dup":4}],218:[function(require,module,exports){
+arguments[4][5][0].apply(exports,arguments)
+},{"dup":5,"uniq":220}],219:[function(require,module,exports){
+arguments[4][6][0].apply(exports,arguments)
+},{"./compile.js":218,"dup":6}],220:[function(require,module,exports){
+arguments[4][7][0].apply(exports,arguments)
+},{"dup":7}],221:[function(require,module,exports){
+arguments[4][3][0].apply(exports,arguments)
+},{"cwise-compiler":222,"dup":3}],222:[function(require,module,exports){
+arguments[4][4][0].apply(exports,arguments)
+},{"./lib/thunk.js":224,"dup":4}],223:[function(require,module,exports){
+arguments[4][5][0].apply(exports,arguments)
+},{"dup":5,"uniq":225}],224:[function(require,module,exports){
+arguments[4][6][0].apply(exports,arguments)
+},{"./compile.js":223,"dup":6}],225:[function(require,module,exports){
+arguments[4][7][0].apply(exports,arguments)
+},{"dup":7}],226:[function(require,module,exports){
 "use strict"
 
 var ndarray = require("ndarray")
@@ -23013,10 +21413,10 @@ module.exports = function convert(arr, result) {
   return result
 }
 
-},{"./doConvert.js":232,"ndarray":252}],232:[function(require,module,exports){
+},{"./doConvert.js":227,"ndarray":247}],227:[function(require,module,exports){
 module.exports=require('cwise-compiler')({"args":["array","scalar","index"],"pre":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"body":{"body":"{\nvar _inline_1_v=_inline_1_arg1_,_inline_1_i\nfor(_inline_1_i=0;_inline_1_i<_inline_1_arg2_.length-1;++_inline_1_i) {\n_inline_1_v=_inline_1_v[_inline_1_arg2_[_inline_1_i]]\n}\n_inline_1_arg0_=_inline_1_v[_inline_1_arg2_[_inline_1_arg2_.length-1]]\n}","args":[{"name":"_inline_1_arg0_","lvalue":true,"rvalue":false,"count":1},{"name":"_inline_1_arg1_","lvalue":false,"rvalue":true,"count":1},{"name":"_inline_1_arg2_","lvalue":false,"rvalue":true,"count":4}],"thisVars":[],"localVars":["_inline_1_i","_inline_1_v"]},"post":{"body":"{}","args":[],"thisVars":[],"localVars":[]},"funcName":"convert","blockSize":64})
 
-},{"cwise-compiler":233}],233:[function(require,module,exports){
+},{"cwise-compiler":228}],228:[function(require,module,exports){
 "use strict"
 
 var createThunk = require("./lib/thunk.js")
@@ -23124,7 +21524,7 @@ function compileCwise(user_args) {
 
 module.exports = compileCwise
 
-},{"./lib/thunk.js":235}],234:[function(require,module,exports){
+},{"./lib/thunk.js":230}],229:[function(require,module,exports){
 "use strict"
 
 var uniq = require("uniq")
@@ -23408,9 +21808,9 @@ function generateCWiseOp(proc, typesig) {
   return f()
 }
 module.exports = generateCWiseOp
-},{"uniq":236}],235:[function(require,module,exports){
-arguments[4][11][0].apply(exports,arguments)
-},{"./compile.js":234,"dup":11}],236:[function(require,module,exports){
+},{"uniq":231}],230:[function(require,module,exports){
+arguments[4][6][0].apply(exports,arguments)
+},{"./compile.js":229,"dup":6}],231:[function(require,module,exports){
 "use strict"
 
 function unique_pred(list, compare) {
@@ -23468,35 +21868,35 @@ function unique(list, compare, sorted) {
 }
 
 module.exports = unique
-},{}],237:[function(require,module,exports){
+},{}],232:[function(require,module,exports){
+arguments[4][81][0].apply(exports,arguments)
+},{"dup":81,"typedarray-pool":245}],233:[function(require,module,exports){
+arguments[4][83][0].apply(exports,arguments)
+},{"dup":83}],234:[function(require,module,exports){
+arguments[4][85][0].apply(exports,arguments)
+},{"dup":85,"typedarray-pool":245}],235:[function(require,module,exports){
 arguments[4][86][0].apply(exports,arguments)
-},{"dup":86,"typedarray-pool":250}],238:[function(require,module,exports){
-arguments[4][88][0].apply(exports,arguments)
-},{"dup":88}],239:[function(require,module,exports){
+},{"dup":86,"invert-permutation":236,"typedarray-pool":245}],236:[function(require,module,exports){
+arguments[4][87][0].apply(exports,arguments)
+},{"dup":87}],237:[function(require,module,exports){
+arguments[4][89][0].apply(exports,arguments)
+},{"dup":89,"gamma":233,"permutation-parity":234,"permutation-rank":235}],238:[function(require,module,exports){
 arguments[4][90][0].apply(exports,arguments)
-},{"dup":90,"typedarray-pool":250}],240:[function(require,module,exports){
-arguments[4][91][0].apply(exports,arguments)
-},{"dup":91,"invert-permutation":241,"typedarray-pool":250}],241:[function(require,module,exports){
-arguments[4][92][0].apply(exports,arguments)
-},{"dup":92}],242:[function(require,module,exports){
-arguments[4][94][0].apply(exports,arguments)
-},{"dup":94,"gamma":238,"permutation-parity":239,"permutation-rank":240}],243:[function(require,module,exports){
+},{"cwise-compiler":239,"dup":90}],239:[function(require,module,exports){
+arguments[4][4][0].apply(exports,arguments)
+},{"./lib/thunk.js":241,"dup":4}],240:[function(require,module,exports){
+arguments[4][5][0].apply(exports,arguments)
+},{"dup":5,"uniq":242}],241:[function(require,module,exports){
+arguments[4][6][0].apply(exports,arguments)
+},{"./compile.js":240,"dup":6}],242:[function(require,module,exports){
+arguments[4][7][0].apply(exports,arguments)
+},{"dup":7}],243:[function(require,module,exports){
 arguments[4][95][0].apply(exports,arguments)
-},{"cwise-compiler":244,"dup":95}],244:[function(require,module,exports){
-arguments[4][9][0].apply(exports,arguments)
-},{"./lib/thunk.js":246,"dup":9}],245:[function(require,module,exports){
+},{"./lib/zc-core":238,"dup":95}],244:[function(require,module,exports){
+arguments[4][96][0].apply(exports,arguments)
+},{"dup":96,"ndarray-extract-contour":232,"triangulate-hypercube":237,"zero-crossings":243}],245:[function(require,module,exports){
 arguments[4][10][0].apply(exports,arguments)
-},{"dup":10,"uniq":247}],246:[function(require,module,exports){
-arguments[4][11][0].apply(exports,arguments)
-},{"./compile.js":245,"dup":11}],247:[function(require,module,exports){
-arguments[4][12][0].apply(exports,arguments)
-},{"dup":12}],248:[function(require,module,exports){
-arguments[4][100][0].apply(exports,arguments)
-},{"./lib/zc-core":243,"dup":100}],249:[function(require,module,exports){
-arguments[4][101][0].apply(exports,arguments)
-},{"dup":101,"ndarray-extract-contour":237,"triangulate-hypercube":242,"zero-crossings":248}],250:[function(require,module,exports){
-arguments[4][15][0].apply(exports,arguments)
-},{"bit-twiddle":191,"buffer":1,"dup":15}],251:[function(require,module,exports){
+},{"bit-twiddle":186,"buffer":250,"dup":10}],246:[function(require,module,exports){
 'use strict'
 
 module.exports = createSurfacePlot
@@ -24749,7 +23149,7 @@ function createSurfacePlot(params) {
 
   return surface
 }
-},{"./lib/shaders":189,"binary-search-bounds":190,"bit-twiddle":191,"colormap":193,"gl-buffer":196,"gl-mat4/invert":199,"gl-mat4/multiply":200,"gl-texture2d":212,"gl-vao":218,"ndarray":252,"ndarray-gradient":221,"ndarray-ops":226,"ndarray-pack":231,"surface-nets":249,"typedarray-pool":250}],252:[function(require,module,exports){
+},{"./lib/shaders":184,"binary-search-bounds":185,"bit-twiddle":186,"colormap":188,"gl-buffer":191,"gl-mat4/invert":194,"gl-mat4/multiply":195,"gl-texture2d":207,"gl-vao":213,"ndarray":247,"ndarray-gradient":216,"ndarray-ops":221,"ndarray-pack":226,"surface-nets":244,"typedarray-pool":245}],247:[function(require,module,exports){
 (function (Buffer){
 var iota = require("iota-array")
 
@@ -25097,7 +23497,7 @@ function wrappedNDArrayCtor(data, shape, stride, offset) {
 
 module.exports = wrappedNDArrayCtor
 }).call(this,require("buffer").Buffer)
-},{"buffer":1,"iota-array":253}],253:[function(require,module,exports){
+},{"buffer":250,"iota-array":248}],248:[function(require,module,exports){
 "use strict"
 
 function iota(n) {
@@ -25109,21 +23509,27 @@ function iota(n) {
 }
 
 module.exports = iota
-},{}],254:[function(require,module,exports){
+},{}],249:[function(require,module,exports){
 var ndarray = require('ndarray');
 var createScene = require('gl-plot3d');
 var createSurfacePlot = require('gl-surface3d');
 
-window.fftsize = 20;
+window.fftsize = 50;
 var timesize = 30;
+var varmap = {};
 
 makescene = function(i) {
-	var varmap = {};
+
 	varmap['scene'+i] = createScene({'canvas': document.getElementById('fft' + i + 'canvas'),
                                    'autoResize':false,
                                    'autoScale':false,
                                    'autoCenter':false,
-                                   'autoBounds':true});
+                                   'autoBounds':true,
+																	 'camera':{ eye:    [28.84134525894378, -26.3245391529961, 71.80368050495437],
+																							center: [22.289583196651314, 20.08832142763649, 7.223370490280737],
+																							up:     [0.002174851458812025, 0.8121432512118254, 0.5834540337783416],
+																							zoomMax: 500}
+																	 });
                                    //'axes':{'bounds':[[0, 0, 0], [30, 60, 30]]}});
 	varmap['fft'+i] = ndarray(new Float32Array(window.fftsize*timesize), [window.fftsize,timesize]);
 	varmap['surface'+i] = createSurfacePlot({
@@ -25131,6 +23537,7 @@ makescene = function(i) {
 		field: varmap['fft'+i]
 	});
 	varmap['scene'+i].add(varmap['surface'+i]);
+	window['scene'+i] = varmap['scene'+1];
 	window['surface'+i] = varmap['surface'+i];
 	window['fft'+i] = varmap['fft'+i];
 }
@@ -25147,4 +23554,1644 @@ updatenewsize = function(fftsize) {
 }
 
 
-},{"gl-plot3d":188,"gl-surface3d":251,"ndarray":252}]},{},[254]);
+},{"gl-plot3d":183,"gl-surface3d":246,"ndarray":247}],250:[function(require,module,exports){
+/*!
+ * The buffer module from node.js, for the browser.
+ *
+ * @author   Feross Aboukhadijeh <feross@feross.org> <http://feross.org>
+ * @license  MIT
+ */
+
+var base64 = require('base64-js')
+var ieee754 = require('ieee754')
+var isArray = require('is-array')
+
+exports.Buffer = Buffer
+exports.SlowBuffer = SlowBuffer
+exports.INSPECT_MAX_BYTES = 50
+Buffer.poolSize = 8192 // not used by this implementation
+
+var kMaxLength = 0x3fffffff
+var rootParent = {}
+
+/**
+ * If `Buffer.TYPED_ARRAY_SUPPORT`:
+ *   === true    Use Uint8Array implementation (fastest)
+ *   === false   Use Object implementation (most compatible, even IE6)
+ *
+ * Browsers that support typed arrays are IE 10+, Firefox 4+, Chrome 7+, Safari 5.1+,
+ * Opera 11.6+, iOS 4.2+.
+ *
+ * Note:
+ *
+ * - Implementation must support adding new properties to `Uint8Array` instances.
+ *   Firefox 4-29 lacked support, fixed in Firefox 30+.
+ *   See: https://bugzilla.mozilla.org/show_bug.cgi?id=695438.
+ *
+ *  - Chrome 9-10 is missing the `TypedArray.prototype.subarray` function.
+ *
+ *  - IE10 has a broken `TypedArray.prototype.subarray` function which returns arrays of
+ *    incorrect length in some situations.
+ *
+ * We detect these buggy browsers and set `Buffer.TYPED_ARRAY_SUPPORT` to `false` so they will
+ * get the Object implementation, which is slower but will work correctly.
+ */
+Buffer.TYPED_ARRAY_SUPPORT = (function () {
+  try {
+    var buf = new ArrayBuffer(0)
+    var arr = new Uint8Array(buf)
+    arr.foo = function () { return 42 }
+    return arr.foo() === 42 && // typed array instances can be augmented
+        typeof arr.subarray === 'function' && // chrome 9-10 lack `subarray`
+        new Uint8Array(1).subarray(1, 1).byteLength === 0 // ie10 has broken `subarray`
+  } catch (e) {
+    return false
+  }
+})()
+
+/**
+ * Class: Buffer
+ * =============
+ *
+ * The Buffer constructor returns instances of `Uint8Array` that are augmented
+ * with function properties for all the node `Buffer` API functions. We use
+ * `Uint8Array` so that square bracket notation works as expected -- it returns
+ * a single octet.
+ *
+ * By augmenting the instances, we can avoid modifying the `Uint8Array`
+ * prototype.
+ */
+function Buffer (subject, encoding) {
+  var self = this
+  if (!(self instanceof Buffer)) return new Buffer(subject, encoding)
+
+  var type = typeof subject
+  var length
+
+  if (type === 'number') {
+    length = +subject
+  } else if (type === 'string') {
+    length = Buffer.byteLength(subject, encoding)
+  } else if (type === 'object' && subject !== null) {
+    // assume object is array-like
+    if (subject.type === 'Buffer' && isArray(subject.data)) subject = subject.data
+    length = +subject.length
+  } else {
+    throw new TypeError('must start with number, buffer, array or string')
+  }
+
+  if (length > kMaxLength) {
+    throw new RangeError('Attempt to allocate Buffer larger than maximum size: 0x' +
+      kMaxLength.toString(16) + ' bytes')
+  }
+
+  if (length < 0) length = 0
+  else length >>>= 0 // coerce to uint32
+
+  if (Buffer.TYPED_ARRAY_SUPPORT) {
+    // Preferred: Return an augmented `Uint8Array` instance for best performance
+    self = Buffer._augment(new Uint8Array(length)) // eslint-disable-line consistent-this
+  } else {
+    // Fallback: Return THIS instance of Buffer (created by `new`)
+    self.length = length
+    self._isBuffer = true
+  }
+
+  var i
+  if (Buffer.TYPED_ARRAY_SUPPORT && typeof subject.byteLength === 'number') {
+    // Speed optimization -- use set if we're copying from a typed array
+    self._set(subject)
+  } else if (isArrayish(subject)) {
+    // Treat array-ish objects as a byte array
+    if (Buffer.isBuffer(subject)) {
+      for (i = 0; i < length; i++) {
+        self[i] = subject.readUInt8(i)
+      }
+    } else {
+      for (i = 0; i < length; i++) {
+        self[i] = ((subject[i] % 256) + 256) % 256
+      }
+    }
+  } else if (type === 'string') {
+    self.write(subject, 0, encoding)
+  } else if (type === 'number' && !Buffer.TYPED_ARRAY_SUPPORT) {
+    for (i = 0; i < length; i++) {
+      self[i] = 0
+    }
+  }
+
+  if (length > 0 && length <= Buffer.poolSize) self.parent = rootParent
+
+  return self
+}
+
+function SlowBuffer (subject, encoding) {
+  if (!(this instanceof SlowBuffer)) return new SlowBuffer(subject, encoding)
+
+  var buf = new Buffer(subject, encoding)
+  delete buf.parent
+  return buf
+}
+
+Buffer.isBuffer = function isBuffer (b) {
+  return !!(b != null && b._isBuffer)
+}
+
+Buffer.compare = function compare (a, b) {
+  if (!Buffer.isBuffer(a) || !Buffer.isBuffer(b)) {
+    throw new TypeError('Arguments must be Buffers')
+  }
+
+  if (a === b) return 0
+
+  var x = a.length
+  var y = b.length
+  for (var i = 0, len = Math.min(x, y); i < len && a[i] === b[i]; i++) {}
+  if (i !== len) {
+    x = a[i]
+    y = b[i]
+  }
+  if (x < y) return -1
+  if (y < x) return 1
+  return 0
+}
+
+Buffer.isEncoding = function isEncoding (encoding) {
+  switch (String(encoding).toLowerCase()) {
+    case 'hex':
+    case 'utf8':
+    case 'utf-8':
+    case 'ascii':
+    case 'binary':
+    case 'base64':
+    case 'raw':
+    case 'ucs2':
+    case 'ucs-2':
+    case 'utf16le':
+    case 'utf-16le':
+      return true
+    default:
+      return false
+  }
+}
+
+Buffer.concat = function concat (list, totalLength) {
+  if (!isArray(list)) throw new TypeError('list argument must be an Array of Buffers.')
+
+  if (list.length === 0) {
+    return new Buffer(0)
+  } else if (list.length === 1) {
+    return list[0]
+  }
+
+  var i
+  if (totalLength === undefined) {
+    totalLength = 0
+    for (i = 0; i < list.length; i++) {
+      totalLength += list[i].length
+    }
+  }
+
+  var buf = new Buffer(totalLength)
+  var pos = 0
+  for (i = 0; i < list.length; i++) {
+    var item = list[i]
+    item.copy(buf, pos)
+    pos += item.length
+  }
+  return buf
+}
+
+Buffer.byteLength = function byteLength (str, encoding) {
+  var ret
+  str = str + ''
+  switch (encoding || 'utf8') {
+    case 'ascii':
+    case 'binary':
+    case 'raw':
+      ret = str.length
+      break
+    case 'ucs2':
+    case 'ucs-2':
+    case 'utf16le':
+    case 'utf-16le':
+      ret = str.length * 2
+      break
+    case 'hex':
+      ret = str.length >>> 1
+      break
+    case 'utf8':
+    case 'utf-8':
+      ret = utf8ToBytes(str).length
+      break
+    case 'base64':
+      ret = base64ToBytes(str).length
+      break
+    default:
+      ret = str.length
+  }
+  return ret
+}
+
+// pre-set for values that may exist in the future
+Buffer.prototype.length = undefined
+Buffer.prototype.parent = undefined
+
+// toString(encoding, start=0, end=buffer.length)
+Buffer.prototype.toString = function toString (encoding, start, end) {
+  var loweredCase = false
+
+  start = start >>> 0
+  end = end === undefined || end === Infinity ? this.length : end >>> 0
+
+  if (!encoding) encoding = 'utf8'
+  if (start < 0) start = 0
+  if (end > this.length) end = this.length
+  if (end <= start) return ''
+
+  while (true) {
+    switch (encoding) {
+      case 'hex':
+        return hexSlice(this, start, end)
+
+      case 'utf8':
+      case 'utf-8':
+        return utf8Slice(this, start, end)
+
+      case 'ascii':
+        return asciiSlice(this, start, end)
+
+      case 'binary':
+        return binarySlice(this, start, end)
+
+      case 'base64':
+        return base64Slice(this, start, end)
+
+      case 'ucs2':
+      case 'ucs-2':
+      case 'utf16le':
+      case 'utf-16le':
+        return utf16leSlice(this, start, end)
+
+      default:
+        if (loweredCase) throw new TypeError('Unknown encoding: ' + encoding)
+        encoding = (encoding + '').toLowerCase()
+        loweredCase = true
+    }
+  }
+}
+
+Buffer.prototype.equals = function equals (b) {
+  if (!Buffer.isBuffer(b)) throw new TypeError('Argument must be a Buffer')
+  if (this === b) return true
+  return Buffer.compare(this, b) === 0
+}
+
+Buffer.prototype.inspect = function inspect () {
+  var str = ''
+  var max = exports.INSPECT_MAX_BYTES
+  if (this.length > 0) {
+    str = this.toString('hex', 0, max).match(/.{2}/g).join(' ')
+    if (this.length > max) str += ' ... '
+  }
+  return '<Buffer ' + str + '>'
+}
+
+Buffer.prototype.compare = function compare (b) {
+  if (!Buffer.isBuffer(b)) throw new TypeError('Argument must be a Buffer')
+  if (this === b) return 0
+  return Buffer.compare(this, b)
+}
+
+Buffer.prototype.indexOf = function indexOf (val, byteOffset) {
+  if (byteOffset > 0x7fffffff) byteOffset = 0x7fffffff
+  else if (byteOffset < -0x80000000) byteOffset = -0x80000000
+  byteOffset >>= 0
+
+  if (this.length === 0) return -1
+  if (byteOffset >= this.length) return -1
+
+  // Negative offsets start from the end of the buffer
+  if (byteOffset < 0) byteOffset = Math.max(this.length + byteOffset, 0)
+
+  if (typeof val === 'string') {
+    if (val.length === 0) return -1 // special case: looking for empty string always fails
+    return String.prototype.indexOf.call(this, val, byteOffset)
+  }
+  if (Buffer.isBuffer(val)) {
+    return arrayIndexOf(this, val, byteOffset)
+  }
+  if (typeof val === 'number') {
+    if (Buffer.TYPED_ARRAY_SUPPORT && Uint8Array.prototype.indexOf === 'function') {
+      return Uint8Array.prototype.indexOf.call(this, val, byteOffset)
+    }
+    return arrayIndexOf(this, [ val ], byteOffset)
+  }
+
+  function arrayIndexOf (arr, val, byteOffset) {
+    var foundIndex = -1
+    for (var i = 0; byteOffset + i < arr.length; i++) {
+      if (arr[byteOffset + i] === val[foundIndex === -1 ? 0 : i - foundIndex]) {
+        if (foundIndex === -1) foundIndex = i
+        if (i - foundIndex + 1 === val.length) return byteOffset + foundIndex
+      } else {
+        foundIndex = -1
+      }
+    }
+    return -1
+  }
+
+  throw new TypeError('val must be string, number or Buffer')
+}
+
+// `get` will be removed in Node 0.13+
+Buffer.prototype.get = function get (offset) {
+  console.log('.get() is deprecated. Access using array indexes instead.')
+  return this.readUInt8(offset)
+}
+
+// `set` will be removed in Node 0.13+
+Buffer.prototype.set = function set (v, offset) {
+  console.log('.set() is deprecated. Access using array indexes instead.')
+  return this.writeUInt8(v, offset)
+}
+
+function hexWrite (buf, string, offset, length) {
+  offset = Number(offset) || 0
+  var remaining = buf.length - offset
+  if (!length) {
+    length = remaining
+  } else {
+    length = Number(length)
+    if (length > remaining) {
+      length = remaining
+    }
+  }
+
+  // must be an even number of digits
+  var strLen = string.length
+  if (strLen % 2 !== 0) throw new Error('Invalid hex string')
+
+  if (length > strLen / 2) {
+    length = strLen / 2
+  }
+  for (var i = 0; i < length; i++) {
+    var parsed = parseInt(string.substr(i * 2, 2), 16)
+    if (isNaN(parsed)) throw new Error('Invalid hex string')
+    buf[offset + i] = parsed
+  }
+  return i
+}
+
+function utf8Write (buf, string, offset, length) {
+  var charsWritten = blitBuffer(utf8ToBytes(string, buf.length - offset), buf, offset, length)
+  return charsWritten
+}
+
+function asciiWrite (buf, string, offset, length) {
+  var charsWritten = blitBuffer(asciiToBytes(string), buf, offset, length)
+  return charsWritten
+}
+
+function binaryWrite (buf, string, offset, length) {
+  return asciiWrite(buf, string, offset, length)
+}
+
+function base64Write (buf, string, offset, length) {
+  var charsWritten = blitBuffer(base64ToBytes(string), buf, offset, length)
+  return charsWritten
+}
+
+function utf16leWrite (buf, string, offset, length) {
+  var charsWritten = blitBuffer(utf16leToBytes(string, buf.length - offset), buf, offset, length)
+  return charsWritten
+}
+
+Buffer.prototype.write = function write (string, offset, length, encoding) {
+  // Support both (string, offset, length, encoding)
+  // and the legacy (string, encoding, offset, length)
+  if (isFinite(offset)) {
+    if (!isFinite(length)) {
+      encoding = length
+      length = undefined
+    }
+  } else {  // legacy
+    var swap = encoding
+    encoding = offset
+    offset = length
+    length = swap
+  }
+
+  offset = Number(offset) || 0
+
+  if (length < 0 || offset < 0 || offset > this.length) {
+    throw new RangeError('attempt to write outside buffer bounds')
+  }
+
+  var remaining = this.length - offset
+  if (!length) {
+    length = remaining
+  } else {
+    length = Number(length)
+    if (length > remaining) {
+      length = remaining
+    }
+  }
+  encoding = String(encoding || 'utf8').toLowerCase()
+
+  var ret
+  switch (encoding) {
+    case 'hex':
+      ret = hexWrite(this, string, offset, length)
+      break
+    case 'utf8':
+    case 'utf-8':
+      ret = utf8Write(this, string, offset, length)
+      break
+    case 'ascii':
+      ret = asciiWrite(this, string, offset, length)
+      break
+    case 'binary':
+      ret = binaryWrite(this, string, offset, length)
+      break
+    case 'base64':
+      ret = base64Write(this, string, offset, length)
+      break
+    case 'ucs2':
+    case 'ucs-2':
+    case 'utf16le':
+    case 'utf-16le':
+      ret = utf16leWrite(this, string, offset, length)
+      break
+    default:
+      throw new TypeError('Unknown encoding: ' + encoding)
+  }
+  return ret
+}
+
+Buffer.prototype.toJSON = function toJSON () {
+  return {
+    type: 'Buffer',
+    data: Array.prototype.slice.call(this._arr || this, 0)
+  }
+}
+
+function base64Slice (buf, start, end) {
+  if (start === 0 && end === buf.length) {
+    return base64.fromByteArray(buf)
+  } else {
+    return base64.fromByteArray(buf.slice(start, end))
+  }
+}
+
+function utf8Slice (buf, start, end) {
+  var res = ''
+  var tmp = ''
+  end = Math.min(buf.length, end)
+
+  for (var i = start; i < end; i++) {
+    if (buf[i] <= 0x7F) {
+      res += decodeUtf8Char(tmp) + String.fromCharCode(buf[i])
+      tmp = ''
+    } else {
+      tmp += '%' + buf[i].toString(16)
+    }
+  }
+
+  return res + decodeUtf8Char(tmp)
+}
+
+function asciiSlice (buf, start, end) {
+  var ret = ''
+  end = Math.min(buf.length, end)
+
+  for (var i = start; i < end; i++) {
+    ret += String.fromCharCode(buf[i] & 0x7F)
+  }
+  return ret
+}
+
+function binarySlice (buf, start, end) {
+  var ret = ''
+  end = Math.min(buf.length, end)
+
+  for (var i = start; i < end; i++) {
+    ret += String.fromCharCode(buf[i])
+  }
+  return ret
+}
+
+function hexSlice (buf, start, end) {
+  var len = buf.length
+
+  if (!start || start < 0) start = 0
+  if (!end || end < 0 || end > len) end = len
+
+  var out = ''
+  for (var i = start; i < end; i++) {
+    out += toHex(buf[i])
+  }
+  return out
+}
+
+function utf16leSlice (buf, start, end) {
+  var bytes = buf.slice(start, end)
+  var res = ''
+  for (var i = 0; i < bytes.length; i += 2) {
+    res += String.fromCharCode(bytes[i] + bytes[i + 1] * 256)
+  }
+  return res
+}
+
+Buffer.prototype.slice = function slice (start, end) {
+  var len = this.length
+  start = ~~start
+  end = end === undefined ? len : ~~end
+
+  if (start < 0) {
+    start += len
+    if (start < 0) start = 0
+  } else if (start > len) {
+    start = len
+  }
+
+  if (end < 0) {
+    end += len
+    if (end < 0) end = 0
+  } else if (end > len) {
+    end = len
+  }
+
+  if (end < start) end = start
+
+  var newBuf
+  if (Buffer.TYPED_ARRAY_SUPPORT) {
+    newBuf = Buffer._augment(this.subarray(start, end))
+  } else {
+    var sliceLen = end - start
+    newBuf = new Buffer(sliceLen, undefined)
+    for (var i = 0; i < sliceLen; i++) {
+      newBuf[i] = this[i + start]
+    }
+  }
+
+  if (newBuf.length) newBuf.parent = this.parent || this
+
+  return newBuf
+}
+
+/*
+ * Need to make sure that buffer isn't trying to write out of bounds.
+ */
+function checkOffset (offset, ext, length) {
+  if ((offset % 1) !== 0 || offset < 0) throw new RangeError('offset is not uint')
+  if (offset + ext > length) throw new RangeError('Trying to access beyond buffer length')
+}
+
+Buffer.prototype.readUIntLE = function readUIntLE (offset, byteLength, noAssert) {
+  offset = offset >>> 0
+  byteLength = byteLength >>> 0
+  if (!noAssert) checkOffset(offset, byteLength, this.length)
+
+  var val = this[offset]
+  var mul = 1
+  var i = 0
+  while (++i < byteLength && (mul *= 0x100)) {
+    val += this[offset + i] * mul
+  }
+
+  return val
+}
+
+Buffer.prototype.readUIntBE = function readUIntBE (offset, byteLength, noAssert) {
+  offset = offset >>> 0
+  byteLength = byteLength >>> 0
+  if (!noAssert) {
+    checkOffset(offset, byteLength, this.length)
+  }
+
+  var val = this[offset + --byteLength]
+  var mul = 1
+  while (byteLength > 0 && (mul *= 0x100)) {
+    val += this[offset + --byteLength] * mul
+  }
+
+  return val
+}
+
+Buffer.prototype.readUInt8 = function readUInt8 (offset, noAssert) {
+  if (!noAssert) checkOffset(offset, 1, this.length)
+  return this[offset]
+}
+
+Buffer.prototype.readUInt16LE = function readUInt16LE (offset, noAssert) {
+  if (!noAssert) checkOffset(offset, 2, this.length)
+  return this[offset] | (this[offset + 1] << 8)
+}
+
+Buffer.prototype.readUInt16BE = function readUInt16BE (offset, noAssert) {
+  if (!noAssert) checkOffset(offset, 2, this.length)
+  return (this[offset] << 8) | this[offset + 1]
+}
+
+Buffer.prototype.readUInt32LE = function readUInt32LE (offset, noAssert) {
+  if (!noAssert) checkOffset(offset, 4, this.length)
+
+  return ((this[offset]) |
+      (this[offset + 1] << 8) |
+      (this[offset + 2] << 16)) +
+      (this[offset + 3] * 0x1000000)
+}
+
+Buffer.prototype.readUInt32BE = function readUInt32BE (offset, noAssert) {
+  if (!noAssert) checkOffset(offset, 4, this.length)
+
+  return (this[offset] * 0x1000000) +
+    ((this[offset + 1] << 16) |
+    (this[offset + 2] << 8) |
+    this[offset + 3])
+}
+
+Buffer.prototype.readIntLE = function readIntLE (offset, byteLength, noAssert) {
+  offset = offset >>> 0
+  byteLength = byteLength >>> 0
+  if (!noAssert) checkOffset(offset, byteLength, this.length)
+
+  var val = this[offset]
+  var mul = 1
+  var i = 0
+  while (++i < byteLength && (mul *= 0x100)) {
+    val += this[offset + i] * mul
+  }
+  mul *= 0x80
+
+  if (val >= mul) val -= Math.pow(2, 8 * byteLength)
+
+  return val
+}
+
+Buffer.prototype.readIntBE = function readIntBE (offset, byteLength, noAssert) {
+  offset = offset >>> 0
+  byteLength = byteLength >>> 0
+  if (!noAssert) checkOffset(offset, byteLength, this.length)
+
+  var i = byteLength
+  var mul = 1
+  var val = this[offset + --i]
+  while (i > 0 && (mul *= 0x100)) {
+    val += this[offset + --i] * mul
+  }
+  mul *= 0x80
+
+  if (val >= mul) val -= Math.pow(2, 8 * byteLength)
+
+  return val
+}
+
+Buffer.prototype.readInt8 = function readInt8 (offset, noAssert) {
+  if (!noAssert) checkOffset(offset, 1, this.length)
+  if (!(this[offset] & 0x80)) return (this[offset])
+  return ((0xff - this[offset] + 1) * -1)
+}
+
+Buffer.prototype.readInt16LE = function readInt16LE (offset, noAssert) {
+  if (!noAssert) checkOffset(offset, 2, this.length)
+  var val = this[offset] | (this[offset + 1] << 8)
+  return (val & 0x8000) ? val | 0xFFFF0000 : val
+}
+
+Buffer.prototype.readInt16BE = function readInt16BE (offset, noAssert) {
+  if (!noAssert) checkOffset(offset, 2, this.length)
+  var val = this[offset + 1] | (this[offset] << 8)
+  return (val & 0x8000) ? val | 0xFFFF0000 : val
+}
+
+Buffer.prototype.readInt32LE = function readInt32LE (offset, noAssert) {
+  if (!noAssert) checkOffset(offset, 4, this.length)
+
+  return (this[offset]) |
+    (this[offset + 1] << 8) |
+    (this[offset + 2] << 16) |
+    (this[offset + 3] << 24)
+}
+
+Buffer.prototype.readInt32BE = function readInt32BE (offset, noAssert) {
+  if (!noAssert) checkOffset(offset, 4, this.length)
+
+  return (this[offset] << 24) |
+    (this[offset + 1] << 16) |
+    (this[offset + 2] << 8) |
+    (this[offset + 3])
+}
+
+Buffer.prototype.readFloatLE = function readFloatLE (offset, noAssert) {
+  if (!noAssert) checkOffset(offset, 4, this.length)
+  return ieee754.read(this, offset, true, 23, 4)
+}
+
+Buffer.prototype.readFloatBE = function readFloatBE (offset, noAssert) {
+  if (!noAssert) checkOffset(offset, 4, this.length)
+  return ieee754.read(this, offset, false, 23, 4)
+}
+
+Buffer.prototype.readDoubleLE = function readDoubleLE (offset, noAssert) {
+  if (!noAssert) checkOffset(offset, 8, this.length)
+  return ieee754.read(this, offset, true, 52, 8)
+}
+
+Buffer.prototype.readDoubleBE = function readDoubleBE (offset, noAssert) {
+  if (!noAssert) checkOffset(offset, 8, this.length)
+  return ieee754.read(this, offset, false, 52, 8)
+}
+
+function checkInt (buf, value, offset, ext, max, min) {
+  if (!Buffer.isBuffer(buf)) throw new TypeError('buffer must be a Buffer instance')
+  if (value > max || value < min) throw new RangeError('value is out of bounds')
+  if (offset + ext > buf.length) throw new RangeError('index out of range')
+}
+
+Buffer.prototype.writeUIntLE = function writeUIntLE (value, offset, byteLength, noAssert) {
+  value = +value
+  offset = offset >>> 0
+  byteLength = byteLength >>> 0
+  if (!noAssert) checkInt(this, value, offset, byteLength, Math.pow(2, 8 * byteLength), 0)
+
+  var mul = 1
+  var i = 0
+  this[offset] = value & 0xFF
+  while (++i < byteLength && (mul *= 0x100)) {
+    this[offset + i] = (value / mul) >>> 0 & 0xFF
+  }
+
+  return offset + byteLength
+}
+
+Buffer.prototype.writeUIntBE = function writeUIntBE (value, offset, byteLength, noAssert) {
+  value = +value
+  offset = offset >>> 0
+  byteLength = byteLength >>> 0
+  if (!noAssert) checkInt(this, value, offset, byteLength, Math.pow(2, 8 * byteLength), 0)
+
+  var i = byteLength - 1
+  var mul = 1
+  this[offset + i] = value & 0xFF
+  while (--i >= 0 && (mul *= 0x100)) {
+    this[offset + i] = (value / mul) >>> 0 & 0xFF
+  }
+
+  return offset + byteLength
+}
+
+Buffer.prototype.writeUInt8 = function writeUInt8 (value, offset, noAssert) {
+  value = +value
+  offset = offset >>> 0
+  if (!noAssert) checkInt(this, value, offset, 1, 0xff, 0)
+  if (!Buffer.TYPED_ARRAY_SUPPORT) value = Math.floor(value)
+  this[offset] = value
+  return offset + 1
+}
+
+function objectWriteUInt16 (buf, value, offset, littleEndian) {
+  if (value < 0) value = 0xffff + value + 1
+  for (var i = 0, j = Math.min(buf.length - offset, 2); i < j; i++) {
+    buf[offset + i] = (value & (0xff << (8 * (littleEndian ? i : 1 - i)))) >>>
+      (littleEndian ? i : 1 - i) * 8
+  }
+}
+
+Buffer.prototype.writeUInt16LE = function writeUInt16LE (value, offset, noAssert) {
+  value = +value
+  offset = offset >>> 0
+  if (!noAssert) checkInt(this, value, offset, 2, 0xffff, 0)
+  if (Buffer.TYPED_ARRAY_SUPPORT) {
+    this[offset] = value
+    this[offset + 1] = (value >>> 8)
+  } else {
+    objectWriteUInt16(this, value, offset, true)
+  }
+  return offset + 2
+}
+
+Buffer.prototype.writeUInt16BE = function writeUInt16BE (value, offset, noAssert) {
+  value = +value
+  offset = offset >>> 0
+  if (!noAssert) checkInt(this, value, offset, 2, 0xffff, 0)
+  if (Buffer.TYPED_ARRAY_SUPPORT) {
+    this[offset] = (value >>> 8)
+    this[offset + 1] = value
+  } else {
+    objectWriteUInt16(this, value, offset, false)
+  }
+  return offset + 2
+}
+
+function objectWriteUInt32 (buf, value, offset, littleEndian) {
+  if (value < 0) value = 0xffffffff + value + 1
+  for (var i = 0, j = Math.min(buf.length - offset, 4); i < j; i++) {
+    buf[offset + i] = (value >>> (littleEndian ? i : 3 - i) * 8) & 0xff
+  }
+}
+
+Buffer.prototype.writeUInt32LE = function writeUInt32LE (value, offset, noAssert) {
+  value = +value
+  offset = offset >>> 0
+  if (!noAssert) checkInt(this, value, offset, 4, 0xffffffff, 0)
+  if (Buffer.TYPED_ARRAY_SUPPORT) {
+    this[offset + 3] = (value >>> 24)
+    this[offset + 2] = (value >>> 16)
+    this[offset + 1] = (value >>> 8)
+    this[offset] = value
+  } else {
+    objectWriteUInt32(this, value, offset, true)
+  }
+  return offset + 4
+}
+
+Buffer.prototype.writeUInt32BE = function writeUInt32BE (value, offset, noAssert) {
+  value = +value
+  offset = offset >>> 0
+  if (!noAssert) checkInt(this, value, offset, 4, 0xffffffff, 0)
+  if (Buffer.TYPED_ARRAY_SUPPORT) {
+    this[offset] = (value >>> 24)
+    this[offset + 1] = (value >>> 16)
+    this[offset + 2] = (value >>> 8)
+    this[offset + 3] = value
+  } else {
+    objectWriteUInt32(this, value, offset, false)
+  }
+  return offset + 4
+}
+
+Buffer.prototype.writeIntLE = function writeIntLE (value, offset, byteLength, noAssert) {
+  value = +value
+  offset = offset >>> 0
+  if (!noAssert) {
+    checkInt(
+      this, value, offset, byteLength,
+      Math.pow(2, 8 * byteLength - 1) - 1,
+      -Math.pow(2, 8 * byteLength - 1)
+    )
+  }
+
+  var i = 0
+  var mul = 1
+  var sub = value < 0 ? 1 : 0
+  this[offset] = value & 0xFF
+  while (++i < byteLength && (mul *= 0x100)) {
+    this[offset + i] = ((value / mul) >> 0) - sub & 0xFF
+  }
+
+  return offset + byteLength
+}
+
+Buffer.prototype.writeIntBE = function writeIntBE (value, offset, byteLength, noAssert) {
+  value = +value
+  offset = offset >>> 0
+  if (!noAssert) {
+    checkInt(
+      this, value, offset, byteLength,
+      Math.pow(2, 8 * byteLength - 1) - 1,
+      -Math.pow(2, 8 * byteLength - 1)
+    )
+  }
+
+  var i = byteLength - 1
+  var mul = 1
+  var sub = value < 0 ? 1 : 0
+  this[offset + i] = value & 0xFF
+  while (--i >= 0 && (mul *= 0x100)) {
+    this[offset + i] = ((value / mul) >> 0) - sub & 0xFF
+  }
+
+  return offset + byteLength
+}
+
+Buffer.prototype.writeInt8 = function writeInt8 (value, offset, noAssert) {
+  value = +value
+  offset = offset >>> 0
+  if (!noAssert) checkInt(this, value, offset, 1, 0x7f, -0x80)
+  if (!Buffer.TYPED_ARRAY_SUPPORT) value = Math.floor(value)
+  if (value < 0) value = 0xff + value + 1
+  this[offset] = value
+  return offset + 1
+}
+
+Buffer.prototype.writeInt16LE = function writeInt16LE (value, offset, noAssert) {
+  value = +value
+  offset = offset >>> 0
+  if (!noAssert) checkInt(this, value, offset, 2, 0x7fff, -0x8000)
+  if (Buffer.TYPED_ARRAY_SUPPORT) {
+    this[offset] = value
+    this[offset + 1] = (value >>> 8)
+  } else {
+    objectWriteUInt16(this, value, offset, true)
+  }
+  return offset + 2
+}
+
+Buffer.prototype.writeInt16BE = function writeInt16BE (value, offset, noAssert) {
+  value = +value
+  offset = offset >>> 0
+  if (!noAssert) checkInt(this, value, offset, 2, 0x7fff, -0x8000)
+  if (Buffer.TYPED_ARRAY_SUPPORT) {
+    this[offset] = (value >>> 8)
+    this[offset + 1] = value
+  } else {
+    objectWriteUInt16(this, value, offset, false)
+  }
+  return offset + 2
+}
+
+Buffer.prototype.writeInt32LE = function writeInt32LE (value, offset, noAssert) {
+  value = +value
+  offset = offset >>> 0
+  if (!noAssert) checkInt(this, value, offset, 4, 0x7fffffff, -0x80000000)
+  if (Buffer.TYPED_ARRAY_SUPPORT) {
+    this[offset] = value
+    this[offset + 1] = (value >>> 8)
+    this[offset + 2] = (value >>> 16)
+    this[offset + 3] = (value >>> 24)
+  } else {
+    objectWriteUInt32(this, value, offset, true)
+  }
+  return offset + 4
+}
+
+Buffer.prototype.writeInt32BE = function writeInt32BE (value, offset, noAssert) {
+  value = +value
+  offset = offset >>> 0
+  if (!noAssert) checkInt(this, value, offset, 4, 0x7fffffff, -0x80000000)
+  if (value < 0) value = 0xffffffff + value + 1
+  if (Buffer.TYPED_ARRAY_SUPPORT) {
+    this[offset] = (value >>> 24)
+    this[offset + 1] = (value >>> 16)
+    this[offset + 2] = (value >>> 8)
+    this[offset + 3] = value
+  } else {
+    objectWriteUInt32(this, value, offset, false)
+  }
+  return offset + 4
+}
+
+function checkIEEE754 (buf, value, offset, ext, max, min) {
+  if (value > max || value < min) throw new RangeError('value is out of bounds')
+  if (offset + ext > buf.length) throw new RangeError('index out of range')
+  if (offset < 0) throw new RangeError('index out of range')
+}
+
+function writeFloat (buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    checkIEEE754(buf, value, offset, 4, 3.4028234663852886e+38, -3.4028234663852886e+38)
+  }
+  ieee754.write(buf, value, offset, littleEndian, 23, 4)
+  return offset + 4
+}
+
+Buffer.prototype.writeFloatLE = function writeFloatLE (value, offset, noAssert) {
+  return writeFloat(this, value, offset, true, noAssert)
+}
+
+Buffer.prototype.writeFloatBE = function writeFloatBE (value, offset, noAssert) {
+  return writeFloat(this, value, offset, false, noAssert)
+}
+
+function writeDouble (buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    checkIEEE754(buf, value, offset, 8, 1.7976931348623157E+308, -1.7976931348623157E+308)
+  }
+  ieee754.write(buf, value, offset, littleEndian, 52, 8)
+  return offset + 8
+}
+
+Buffer.prototype.writeDoubleLE = function writeDoubleLE (value, offset, noAssert) {
+  return writeDouble(this, value, offset, true, noAssert)
+}
+
+Buffer.prototype.writeDoubleBE = function writeDoubleBE (value, offset, noAssert) {
+  return writeDouble(this, value, offset, false, noAssert)
+}
+
+// copy(targetBuffer, targetStart=0, sourceStart=0, sourceEnd=buffer.length)
+Buffer.prototype.copy = function copy (target, target_start, start, end) {
+  if (!start) start = 0
+  if (!end && end !== 0) end = this.length
+  if (target_start >= target.length) target_start = target.length
+  if (!target_start) target_start = 0
+  if (end > 0 && end < start) end = start
+
+  // Copy 0 bytes; we're done
+  if (end === start) return 0
+  if (target.length === 0 || this.length === 0) return 0
+
+  // Fatal error conditions
+  if (target_start < 0) {
+    throw new RangeError('targetStart out of bounds')
+  }
+  if (start < 0 || start >= this.length) throw new RangeError('sourceStart out of bounds')
+  if (end < 0) throw new RangeError('sourceEnd out of bounds')
+
+  // Are we oob?
+  if (end > this.length) end = this.length
+  if (target.length - target_start < end - start) {
+    end = target.length - target_start + start
+  }
+
+  var len = end - start
+
+  if (len < 1000 || !Buffer.TYPED_ARRAY_SUPPORT) {
+    for (var i = 0; i < len; i++) {
+      target[i + target_start] = this[i + start]
+    }
+  } else {
+    target._set(this.subarray(start, start + len), target_start)
+  }
+
+  return len
+}
+
+// fill(value, start=0, end=buffer.length)
+Buffer.prototype.fill = function fill (value, start, end) {
+  if (!value) value = 0
+  if (!start) start = 0
+  if (!end) end = this.length
+
+  if (end < start) throw new RangeError('end < start')
+
+  // Fill 0 bytes; we're done
+  if (end === start) return
+  if (this.length === 0) return
+
+  if (start < 0 || start >= this.length) throw new RangeError('start out of bounds')
+  if (end < 0 || end > this.length) throw new RangeError('end out of bounds')
+
+  var i
+  if (typeof value === 'number') {
+    for (i = start; i < end; i++) {
+      this[i] = value
+    }
+  } else {
+    var bytes = utf8ToBytes(value.toString())
+    var len = bytes.length
+    for (i = start; i < end; i++) {
+      this[i] = bytes[i % len]
+    }
+  }
+
+  return this
+}
+
+/**
+ * Creates a new `ArrayBuffer` with the *copied* memory of the buffer instance.
+ * Added in Node 0.12. Only available in browsers that support ArrayBuffer.
+ */
+Buffer.prototype.toArrayBuffer = function toArrayBuffer () {
+  if (typeof Uint8Array !== 'undefined') {
+    if (Buffer.TYPED_ARRAY_SUPPORT) {
+      return (new Buffer(this)).buffer
+    } else {
+      var buf = new Uint8Array(this.length)
+      for (var i = 0, len = buf.length; i < len; i += 1) {
+        buf[i] = this[i]
+      }
+      return buf.buffer
+    }
+  } else {
+    throw new TypeError('Buffer.toArrayBuffer not supported in this browser')
+  }
+}
+
+// HELPER FUNCTIONS
+// ================
+
+var BP = Buffer.prototype
+
+/**
+ * Augment a Uint8Array *instance* (not the Uint8Array class!) with Buffer methods
+ */
+Buffer._augment = function _augment (arr) {
+  arr.constructor = Buffer
+  arr._isBuffer = true
+
+  // save reference to original Uint8Array set method before overwriting
+  arr._set = arr.set
+
+  // deprecated, will be removed in node 0.13+
+  arr.get = BP.get
+  arr.set = BP.set
+
+  arr.write = BP.write
+  arr.toString = BP.toString
+  arr.toLocaleString = BP.toString
+  arr.toJSON = BP.toJSON
+  arr.equals = BP.equals
+  arr.compare = BP.compare
+  arr.indexOf = BP.indexOf
+  arr.copy = BP.copy
+  arr.slice = BP.slice
+  arr.readUIntLE = BP.readUIntLE
+  arr.readUIntBE = BP.readUIntBE
+  arr.readUInt8 = BP.readUInt8
+  arr.readUInt16LE = BP.readUInt16LE
+  arr.readUInt16BE = BP.readUInt16BE
+  arr.readUInt32LE = BP.readUInt32LE
+  arr.readUInt32BE = BP.readUInt32BE
+  arr.readIntLE = BP.readIntLE
+  arr.readIntBE = BP.readIntBE
+  arr.readInt8 = BP.readInt8
+  arr.readInt16LE = BP.readInt16LE
+  arr.readInt16BE = BP.readInt16BE
+  arr.readInt32LE = BP.readInt32LE
+  arr.readInt32BE = BP.readInt32BE
+  arr.readFloatLE = BP.readFloatLE
+  arr.readFloatBE = BP.readFloatBE
+  arr.readDoubleLE = BP.readDoubleLE
+  arr.readDoubleBE = BP.readDoubleBE
+  arr.writeUInt8 = BP.writeUInt8
+  arr.writeUIntLE = BP.writeUIntLE
+  arr.writeUIntBE = BP.writeUIntBE
+  arr.writeUInt16LE = BP.writeUInt16LE
+  arr.writeUInt16BE = BP.writeUInt16BE
+  arr.writeUInt32LE = BP.writeUInt32LE
+  arr.writeUInt32BE = BP.writeUInt32BE
+  arr.writeIntLE = BP.writeIntLE
+  arr.writeIntBE = BP.writeIntBE
+  arr.writeInt8 = BP.writeInt8
+  arr.writeInt16LE = BP.writeInt16LE
+  arr.writeInt16BE = BP.writeInt16BE
+  arr.writeInt32LE = BP.writeInt32LE
+  arr.writeInt32BE = BP.writeInt32BE
+  arr.writeFloatLE = BP.writeFloatLE
+  arr.writeFloatBE = BP.writeFloatBE
+  arr.writeDoubleLE = BP.writeDoubleLE
+  arr.writeDoubleBE = BP.writeDoubleBE
+  arr.fill = BP.fill
+  arr.inspect = BP.inspect
+  arr.toArrayBuffer = BP.toArrayBuffer
+
+  return arr
+}
+
+var INVALID_BASE64_RE = /[^+\/0-9A-z\-]/g
+
+function base64clean (str) {
+  // Node strips out invalid characters like \n and \t from the string, base64-js does not
+  str = stringtrim(str).replace(INVALID_BASE64_RE, '')
+  // Node converts strings with length < 2 to ''
+  if (str.length < 2) return ''
+  // Node allows for non-padded base64 strings (missing trailing ===), base64-js does not
+  while (str.length % 4 !== 0) {
+    str = str + '='
+  }
+  return str
+}
+
+function stringtrim (str) {
+  if (str.trim) return str.trim()
+  return str.replace(/^\s+|\s+$/g, '')
+}
+
+function isArrayish (subject) {
+  return isArray(subject) || Buffer.isBuffer(subject) ||
+      subject && typeof subject === 'object' &&
+      typeof subject.length === 'number'
+}
+
+function toHex (n) {
+  if (n < 16) return '0' + n.toString(16)
+  return n.toString(16)
+}
+
+function utf8ToBytes (string, units) {
+  units = units || Infinity
+  var codePoint
+  var length = string.length
+  var leadSurrogate = null
+  var bytes = []
+  var i = 0
+
+  for (; i < length; i++) {
+    codePoint = string.charCodeAt(i)
+
+    // is surrogate component
+    if (codePoint > 0xD7FF && codePoint < 0xE000) {
+      // last char was a lead
+      if (leadSurrogate) {
+        // 2 leads in a row
+        if (codePoint < 0xDC00) {
+          if ((units -= 3) > -1) bytes.push(0xEF, 0xBF, 0xBD)
+          leadSurrogate = codePoint
+          continue
+        } else {
+          // valid surrogate pair
+          codePoint = leadSurrogate - 0xD800 << 10 | codePoint - 0xDC00 | 0x10000
+          leadSurrogate = null
+        }
+      } else {
+        // no lead yet
+
+        if (codePoint > 0xDBFF) {
+          // unexpected trail
+          if ((units -= 3) > -1) bytes.push(0xEF, 0xBF, 0xBD)
+          continue
+        } else if (i + 1 === length) {
+          // unpaired lead
+          if ((units -= 3) > -1) bytes.push(0xEF, 0xBF, 0xBD)
+          continue
+        } else {
+          // valid lead
+          leadSurrogate = codePoint
+          continue
+        }
+      }
+    } else if (leadSurrogate) {
+      // valid bmp char, but last char was a lead
+      if ((units -= 3) > -1) bytes.push(0xEF, 0xBF, 0xBD)
+      leadSurrogate = null
+    }
+
+    // encode utf8
+    if (codePoint < 0x80) {
+      if ((units -= 1) < 0) break
+      bytes.push(codePoint)
+    } else if (codePoint < 0x800) {
+      if ((units -= 2) < 0) break
+      bytes.push(
+        codePoint >> 0x6 | 0xC0,
+        codePoint & 0x3F | 0x80
+      )
+    } else if (codePoint < 0x10000) {
+      if ((units -= 3) < 0) break
+      bytes.push(
+        codePoint >> 0xC | 0xE0,
+        codePoint >> 0x6 & 0x3F | 0x80,
+        codePoint & 0x3F | 0x80
+      )
+    } else if (codePoint < 0x200000) {
+      if ((units -= 4) < 0) break
+      bytes.push(
+        codePoint >> 0x12 | 0xF0,
+        codePoint >> 0xC & 0x3F | 0x80,
+        codePoint >> 0x6 & 0x3F | 0x80,
+        codePoint & 0x3F | 0x80
+      )
+    } else {
+      throw new Error('Invalid code point')
+    }
+  }
+
+  return bytes
+}
+
+function asciiToBytes (str) {
+  var byteArray = []
+  for (var i = 0; i < str.length; i++) {
+    // Node's code seems to be doing this and not & 0x7F..
+    byteArray.push(str.charCodeAt(i) & 0xFF)
+  }
+  return byteArray
+}
+
+function utf16leToBytes (str, units) {
+  var c, hi, lo
+  var byteArray = []
+  for (var i = 0; i < str.length; i++) {
+    if ((units -= 2) < 0) break
+
+    c = str.charCodeAt(i)
+    hi = c >> 8
+    lo = c % 256
+    byteArray.push(lo)
+    byteArray.push(hi)
+  }
+
+  return byteArray
+}
+
+function base64ToBytes (str) {
+  return base64.toByteArray(base64clean(str))
+}
+
+function blitBuffer (src, dst, offset, length) {
+  for (var i = 0; i < length; i++) {
+    if ((i + offset >= dst.length) || (i >= src.length)) break
+    dst[i + offset] = src[i]
+  }
+  return i
+}
+
+function decodeUtf8Char (str) {
+  try {
+    return decodeURIComponent(str)
+  } catch (err) {
+    return String.fromCharCode(0xFFFD) // UTF 8 invalid char
+  }
+}
+
+},{"base64-js":251,"ieee754":252,"is-array":253}],251:[function(require,module,exports){
+var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+;(function (exports) {
+	'use strict';
+
+  var Arr = (typeof Uint8Array !== 'undefined')
+    ? Uint8Array
+    : Array
+
+	var PLUS   = '+'.charCodeAt(0)
+	var SLASH  = '/'.charCodeAt(0)
+	var NUMBER = '0'.charCodeAt(0)
+	var LOWER  = 'a'.charCodeAt(0)
+	var UPPER  = 'A'.charCodeAt(0)
+	var PLUS_URL_SAFE = '-'.charCodeAt(0)
+	var SLASH_URL_SAFE = '_'.charCodeAt(0)
+
+	function decode (elt) {
+		var code = elt.charCodeAt(0)
+		if (code === PLUS ||
+		    code === PLUS_URL_SAFE)
+			return 62 // '+'
+		if (code === SLASH ||
+		    code === SLASH_URL_SAFE)
+			return 63 // '/'
+		if (code < NUMBER)
+			return -1 //no match
+		if (code < NUMBER + 10)
+			return code - NUMBER + 26 + 26
+		if (code < UPPER + 26)
+			return code - UPPER
+		if (code < LOWER + 26)
+			return code - LOWER + 26
+	}
+
+	function b64ToByteArray (b64) {
+		var i, j, l, tmp, placeHolders, arr
+
+		if (b64.length % 4 > 0) {
+			throw new Error('Invalid string. Length must be a multiple of 4')
+		}
+
+		// the number of equal signs (place holders)
+		// if there are two placeholders, than the two characters before it
+		// represent one byte
+		// if there is only one, then the three characters before it represent 2 bytes
+		// this is just a cheap hack to not do indexOf twice
+		var len = b64.length
+		placeHolders = '=' === b64.charAt(len - 2) ? 2 : '=' === b64.charAt(len - 1) ? 1 : 0
+
+		// base64 is 4/3 + up to two characters of the original data
+		arr = new Arr(b64.length * 3 / 4 - placeHolders)
+
+		// if there are placeholders, only get up to the last complete 4 chars
+		l = placeHolders > 0 ? b64.length - 4 : b64.length
+
+		var L = 0
+
+		function push (v) {
+			arr[L++] = v
+		}
+
+		for (i = 0, j = 0; i < l; i += 4, j += 3) {
+			tmp = (decode(b64.charAt(i)) << 18) | (decode(b64.charAt(i + 1)) << 12) | (decode(b64.charAt(i + 2)) << 6) | decode(b64.charAt(i + 3))
+			push((tmp & 0xFF0000) >> 16)
+			push((tmp & 0xFF00) >> 8)
+			push(tmp & 0xFF)
+		}
+
+		if (placeHolders === 2) {
+			tmp = (decode(b64.charAt(i)) << 2) | (decode(b64.charAt(i + 1)) >> 4)
+			push(tmp & 0xFF)
+		} else if (placeHolders === 1) {
+			tmp = (decode(b64.charAt(i)) << 10) | (decode(b64.charAt(i + 1)) << 4) | (decode(b64.charAt(i + 2)) >> 2)
+			push((tmp >> 8) & 0xFF)
+			push(tmp & 0xFF)
+		}
+
+		return arr
+	}
+
+	function uint8ToBase64 (uint8) {
+		var i,
+			extraBytes = uint8.length % 3, // if we have 1 byte left, pad 2 bytes
+			output = "",
+			temp, length
+
+		function encode (num) {
+			return lookup.charAt(num)
+		}
+
+		function tripletToBase64 (num) {
+			return encode(num >> 18 & 0x3F) + encode(num >> 12 & 0x3F) + encode(num >> 6 & 0x3F) + encode(num & 0x3F)
+		}
+
+		// go through the array every three bytes, we'll deal with trailing stuff later
+		for (i = 0, length = uint8.length - extraBytes; i < length; i += 3) {
+			temp = (uint8[i] << 16) + (uint8[i + 1] << 8) + (uint8[i + 2])
+			output += tripletToBase64(temp)
+		}
+
+		// pad the end with zeros, but make sure to not forget the extra bytes
+		switch (extraBytes) {
+			case 1:
+				temp = uint8[uint8.length - 1]
+				output += encode(temp >> 2)
+				output += encode((temp << 4) & 0x3F)
+				output += '=='
+				break
+			case 2:
+				temp = (uint8[uint8.length - 2] << 8) + (uint8[uint8.length - 1])
+				output += encode(temp >> 10)
+				output += encode((temp >> 4) & 0x3F)
+				output += encode((temp << 2) & 0x3F)
+				output += '='
+				break
+		}
+
+		return output
+	}
+
+	exports.toByteArray = b64ToByteArray
+	exports.fromByteArray = uint8ToBase64
+}(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
+
+},{}],252:[function(require,module,exports){
+exports.read = function(buffer, offset, isLE, mLen, nBytes) {
+  var e, m,
+      eLen = nBytes * 8 - mLen - 1,
+      eMax = (1 << eLen) - 1,
+      eBias = eMax >> 1,
+      nBits = -7,
+      i = isLE ? (nBytes - 1) : 0,
+      d = isLE ? -1 : 1,
+      s = buffer[offset + i];
+
+  i += d;
+
+  e = s & ((1 << (-nBits)) - 1);
+  s >>= (-nBits);
+  nBits += eLen;
+  for (; nBits > 0; e = e * 256 + buffer[offset + i], i += d, nBits -= 8);
+
+  m = e & ((1 << (-nBits)) - 1);
+  e >>= (-nBits);
+  nBits += mLen;
+  for (; nBits > 0; m = m * 256 + buffer[offset + i], i += d, nBits -= 8);
+
+  if (e === 0) {
+    e = 1 - eBias;
+  } else if (e === eMax) {
+    return m ? NaN : ((s ? -1 : 1) * Infinity);
+  } else {
+    m = m + Math.pow(2, mLen);
+    e = e - eBias;
+  }
+  return (s ? -1 : 1) * m * Math.pow(2, e - mLen);
+};
+
+exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
+  var e, m, c,
+      eLen = nBytes * 8 - mLen - 1,
+      eMax = (1 << eLen) - 1,
+      eBias = eMax >> 1,
+      rt = (mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0),
+      i = isLE ? 0 : (nBytes - 1),
+      d = isLE ? 1 : -1,
+      s = value < 0 || (value === 0 && 1 / value < 0) ? 1 : 0;
+
+  value = Math.abs(value);
+
+  if (isNaN(value) || value === Infinity) {
+    m = isNaN(value) ? 1 : 0;
+    e = eMax;
+  } else {
+    e = Math.floor(Math.log(value) / Math.LN2);
+    if (value * (c = Math.pow(2, -e)) < 1) {
+      e--;
+      c *= 2;
+    }
+    if (e + eBias >= 1) {
+      value += rt / c;
+    } else {
+      value += rt * Math.pow(2, 1 - eBias);
+    }
+    if (value * c >= 2) {
+      e++;
+      c /= 2;
+    }
+
+    if (e + eBias >= eMax) {
+      m = 0;
+      e = eMax;
+    } else if (e + eBias >= 1) {
+      m = (value * c - 1) * Math.pow(2, mLen);
+      e = e + eBias;
+    } else {
+      m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen);
+      e = 0;
+    }
+  }
+
+  for (; mLen >= 8; buffer[offset + i] = m & 0xff, i += d, m /= 256, mLen -= 8);
+
+  e = (e << mLen) | m;
+  eLen += mLen;
+  for (; eLen > 0; buffer[offset + i] = e & 0xff, i += d, e /= 256, eLen -= 8);
+
+  buffer[offset + i - d] |= s * 128;
+};
+
+},{}],253:[function(require,module,exports){
+
+/**
+ * isArray
+ */
+
+var isArray = Array.isArray;
+
+/**
+ * toString
+ */
+
+var str = Object.prototype.toString;
+
+/**
+ * Whether or not the given `val`
+ * is an array.
+ *
+ * example:
+ *
+ *        isArray([]);
+ *        // > true
+ *        isArray(arguments);
+ *        // > false
+ *        isArray('');
+ *        // > false
+ *
+ * @param {mixed} val
+ * @return {bool}
+ */
+
+module.exports = isArray || function (val) {
+  return !! val && '[object Array]' == str.call(val);
+};
+
+},{}],254:[function(require,module,exports){
+// shim for using process in browser
+
+var process = module.exports = {};
+var queue = [];
+var draining = false;
+
+function drainQueue() {
+    if (draining) {
+        return;
+    }
+    draining = true;
+    var currentQueue;
+    var len = queue.length;
+    while(len) {
+        currentQueue = queue;
+        queue = [];
+        var i = -1;
+        while (++i < len) {
+            currentQueue[i]();
+        }
+        len = queue.length;
+    }
+    draining = false;
+}
+process.nextTick = function (fun) {
+    queue.push(fun);
+    if (!draining) {
+        setTimeout(drainQueue, 0);
+    }
+};
+
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+process.version = ''; // empty string to avoid regexp issues
+process.versions = {};
+
+function noop() {}
+
+process.on = noop;
+process.addListener = noop;
+process.once = noop;
+process.off = noop;
+process.removeListener = noop;
+process.removeAllListeners = noop;
+process.emit = noop;
+
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
+};
+
+// TODO(shtylman)
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
+};
+process.umask = function() { return 0; };
+
+},{}]},{},[249]);

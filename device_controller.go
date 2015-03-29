@@ -258,7 +258,7 @@ func (mc *MindControl) GenTestPackets() {
 		default:
 			if on {
 				i = i + 0.04
-				val = math.Sin(2.0 * math.Pi * i)
+				val = 0.1 * math.Sin(2.0 * math.Pi * i) + 0.1 * math.Cos(2.0 * math.Pi * 0.2 * i)
 				packet := NewPacket()
 				packet.Chan1 = val
 				packet.Chan2 = val
