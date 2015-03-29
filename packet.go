@@ -89,6 +89,7 @@ func (pb *PacketBatcher) dft(input []float64) []float64 {
 		data.Set(idx, complex(val, 0.0))
 	}
 	forward := fftw.NewPlan(data, data, fftw.Forward, fftw.Estimate)
+	defer forward.Destroy()
 	forward.Execute()
 	data_out := make([]float64, pb.size)
 	for idx, val := range data.Elems {
