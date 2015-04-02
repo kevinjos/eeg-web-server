@@ -288,6 +288,15 @@ func NewMessage(name string, payload map[string][]float64) *Message {
 
 }
 
+func CalcFFTBins(fftSize int) (bins []float64) {
+	bins = make([]float64, fftSize/2)
+	step := float64(samplesPerSecond) / float64(fftSize)
+	for idx, _ := range bins {
+		bins[idx] = step * float64(idx)
+	}
+	return bins
+}
+
 func (mc *MindControl) sendPackets() {
 	var (
 		i int
@@ -355,6 +364,9 @@ func (mc *MindControl) sendPackets() {
 				pbFFT.batch()
 				pbFFT.setFFT()
 				mc.broadcast <- NewMessage("fft", pbFFT.FFTs)
+				binMsg := make(map[string][]float64)
+				binMsg["fftBins"] = CalcFFTBins(FFTSize)
+				mc.broadcast <- NewMessage("fftBins", binMsg)
 			}
 
 			if i%250 == 0 {
