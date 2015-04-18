@@ -1,4 +1,5 @@
 *.swp
+openbci-driver
 data/
 js/build/
 js/libs/
