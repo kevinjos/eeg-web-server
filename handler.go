@@ -19,6 +19,7 @@
 package main
 
 import (
+	"fmt"
 	"html/template"
 	"net/http"
 	"strconv"
@@ -118,13 +119,26 @@ func (handle *Handle) commandHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	command := handle.parseCommand(r.URL.Path)
-	if len(command) > 72 {
+	lenCommand := len(command)
+	if lenCommand > 72 {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	for _, c := range command {
-		handle.mc.SerialDevice.writeChan <- string(c)
+
+	for i := 0; i < lenCommand; i++ {
+		if i%9 == 0 && i+9 < lenCommand {
+			handle.staggerWriter(command[i : i+9])
+		} else if i%9 == 0 {
+			handle.staggerWriter(command[i:])
+		}
 	}
+}
+
+func (handle *Handle) staggerWriter(c string) {
+	fmt.Printf("Writing %s to serial device\n", c)
+	handle.mc.SerialDevice.writeChan <- string(c[0])
+	handle.mc.SerialDevice.writeChan <- string(c[1:8])
+	handle.mc.SerialDevice.writeChan <- string(c[8])
 }
 
 func (handle *Handle) openHandler(w http.ResponseWriter, r *http.Request) {

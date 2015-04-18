@@ -3,8 +3,8 @@
   <head>
     <link rel="stylesheet" href="../bootstrap/css/bootstrap.css">
     <link rel="stylesheet" href="/static/main.css">
-		<script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
-		<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+    <script src="/js/libs/d3.v3.min.js" charset="utf-8"></script>
+    <script src="/js/libs/jquery.min.js"></script>
     <script type="text/javascript">
       if (window["WebSocket"]) {
         conn = new WebSocket("ws://{{$}}/ws");
@@ -16,13 +16,14 @@
 					if (rdata == null) {
 						return
 					} else if (rdata.Name == "fftBins") {
-						console.log(rdata.Payload["fftBins"])
+						// console.log(rdata.Payload["fftBins"])
 					} else if (rdata.Name == "raw") {
 						for(var chan=1; chan<9; chan++) {
 							window['updaterawchan'+chan](rdata.Payload['Chan'+chan])
 						}
 					} else if (rdata.Name == "fft") {
 						for(var chan=1; chan<9; chan++) {
+							rdata.Payload['Chan'+chan] = rdata.Payload['Chan'+chan].map(Math.log)
 							for(var i=window.fft1.shape[0]-1; i>=0; i--) {
 								for(var j=window.fft1.shape[1]-1; j>=0; j--) {
 									if(j==0){
@@ -247,6 +248,6 @@
 
 	<script src="/js/handler.js"></script>
 	<script src="/js/timeseries.js"></script>
-	<script src="/js/bundle.js"></script>
+	<script src="/js/libs/bundle.js"></script>
   </body>
 </html>

@@ -258,7 +258,7 @@ func (mc *MindControl) GenTestPackets() {
 		default:
 			if on {
 				i = i + 0.04
-				val = 0.1 * math.Sin(2.0 * math.Pi * i) + 0.1 * math.Cos(2.0 * math.Pi * 0.2 * i)
+				val = 0.1*math.Sin(2.0*math.Pi*i) + 0.1*math.Cos(2.0*math.Pi*0.2*i)
 				packet := NewPacket()
 				packet.Chan1 = val
 				packet.Chan2 = val
@@ -304,9 +304,6 @@ func (mc *MindControl) sendPackets() {
 
 	FFTSize := 250
 	FFTFreq := 50
-
-	last_second := time.Now().UnixNano()
-	second := time.Now().UnixNano()
 
 	filterDesign, err := gofidlib.NewFilterDesign("BpBe4/1-50", samplesPerSecond)
 	if err != nil {
@@ -367,12 +364,6 @@ func (mc *MindControl) sendPackets() {
 				binMsg := make(map[string][]float64)
 				binMsg["fftBins"] = CalcFFTBins(FFTSize)
 				mc.broadcast <- NewMessage("fftBins", binMsg)
-			}
-
-			if i%250 == 0 {
-				second = time.Now().UnixNano()
-				log.Println(second-last_second, "nanoseconds have elapsed between 250 samples.")
-				last_second = second
 			}
 
 			i++

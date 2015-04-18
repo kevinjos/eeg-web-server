@@ -19,19 +19,11 @@
 package main
 
 import (
-	"github.com/tarm/goserial"
+	"github.com/tarm/serial"
 	"io"
 	"log"
 	"time"
-	//"github.com/pkg/term"
 )
-
-type ReadWriteFlushCloser interface {
-	Read([]byte) (int, error)
-	Write([]byte) (int, error)
-	Close() error
-	Flush() error
-}
 
 type OpenBCI struct {
 	writeChan     chan string
@@ -46,7 +38,7 @@ type OpenBCI struct {
 
 func NewOpenBCI() *OpenBCI {
 	return &OpenBCI{
-		writeChan:     make(chan string, 64),
+		writeChan:     make(chan string, 4),
 		readChan:      make(chan byte, readBufferSize),
 		timeoutChan:   make(chan bool),
 		quitCommand:   make(chan bool),
@@ -131,6 +123,7 @@ func (d *OpenBCI) write(s string) {
 		} else {
 			log.Println("Wrote [", n, "] byte", wb, "to the serial device")
 		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
