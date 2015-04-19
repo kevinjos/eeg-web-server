@@ -99,11 +99,12 @@ func (pb *PacketBatcher) dft(input []float64) []float64 {
 }
 
 type Packet struct {
-	header, footer, seqNum                                 byte
-	Chan1, Chan2, Chan3, Chan4, Chan5, Chan6, Chan7, Chan8 float64
-	AccX, AccY, AccZ                                       int16
-	SignalQuality                                          uint8
-	Synced                                                 bool
+	header, footer, seqNum                                         byte
+	Chan1, Chan2, Chan3, Chan4, Chan5, Chan6, Chan7, Chan8         float64
+	Rchan1, Rchan2, Rchan3, Rchan4, Rchan5, Rchan6, Rchan7, Rchan8 []byte
+	AccX, AccY, AccZ                                               int16
+	SignalQuality                                                  uint8
+	Synced                                                         bool
 }
 
 func NewPacket() *Packet {
@@ -131,13 +132,21 @@ func encodePacket(p *[33]byte, sq byte, gain *[8]float64, synced bool) *Packet {
 	packet := NewPacket()
 	packet.seqNum = p[1]
 	packet.Chan1 = scaleToMicroVolts(convert24bitTo32bit(p[2:5]), gain[0])
+	packet.Rchan1 = p[2:5]
 	packet.Chan2 = scaleToMicroVolts(convert24bitTo32bit(p[5:8]), gain[1])
+	packet.Rchan2 = p[2:5]
 	packet.Chan3 = scaleToMicroVolts(convert24bitTo32bit(p[8:11]), gain[2])
+	packet.Rchan3 = p[2:5]
 	packet.Chan4 = scaleToMicroVolts(convert24bitTo32bit(p[11:14]), gain[3])
+	packet.Rchan4 = p[2:5]
 	packet.Chan5 = scaleToMicroVolts(convert24bitTo32bit(p[14:17]), gain[4])
+	packet.Rchan5 = p[2:5]
 	packet.Chan6 = scaleToMicroVolts(convert24bitTo32bit(p[17:20]), gain[5])
+	packet.Rchan6 = p[2:5]
 	packet.Chan7 = scaleToMicroVolts(convert24bitTo32bit(p[20:23]), gain[6])
+	packet.Rchan7 = p[2:5]
 	packet.Chan8 = scaleToMicroVolts(convert24bitTo32bit(p[23:26]), gain[7])
+	packet.Rchan8 = p[2:5]
 	packet.AccX = convert16bitTo32bit(p[26:28])
 	packet.AccY = convert16bitTo32bit(p[28:30])
 	packet.AccZ = convert16bitTo32bit(p[30:32])

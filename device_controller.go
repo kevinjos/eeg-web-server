@@ -1,19 +1,19 @@
-/*  OpenBCI golang server allows users to control, visualize and store data
-    collected from the OpenBCI microcontroller.
-    Copyright (C) 2015  Kevin Schiesser
+/*OpenBCI golang server allows users to control, visualize and store data
+  collected from the OpenBCI microcontroller.
+  Copyright (C) 2015  Kevin Schiesser
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as
-    published by the Free Software Foundation, either version 3 of the
-    License, or (at your option) any later version.
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as
+  published by the Free Software Foundation, either version 3 of the
+  License, or (at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Affero General Public License for more details.
 
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+  You should have received a copy of the GNU Affero General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 package main
 
@@ -27,6 +27,7 @@ import (
 	"time"
 )
 
+// MindControl ...
 type MindControl struct {
 	ReadChan         *chan byte
 	PacketChan       chan *Packet
@@ -42,16 +43,18 @@ type MindControl struct {
 	SerialDevice     *OpenBCI
 	broadcast        chan *Message
 	gain             [8]float64
+	gainC            chan *[8]float64
 	saving           bool
 }
 
+// NewMindControl ...
 func NewMindControl(broadcast chan *Message, shutdown chan bool) *MindControl {
 	//Set up the serial device
 	serialDevice := NewOpenBCI()
 	return &MindControl{
 		ReadChan:         &serialDevice.readChan,
 		PacketChan:       make(chan *Packet),
-		savePacketChan:   make(chan *Packet),
+		savePacketChan:   make(chan *Packet, 2),
 		deltaFFT:         make(chan [2]int),
 		ResetChan:        make(chan bool),
 		quitGenTest:      make(chan bool),
@@ -67,14 +70,17 @@ func NewMindControl(broadcast chan *Message, shutdown chan bool) *MindControl {
 	}
 }
 
+// Start ...
 func (mc *MindControl) Start() {
 	go mc.sendPackets()
-	go mc.DecodeStream()
+	go DecodeStream(mc.quitDecodeStream, mc.ReadChan, mc.SerialDevice.readChan, mc.ResetChan,
+		mc.SerialDevice.resetChan, mc.SerialDevice.timeoutChan, mc.PacketChan, mc.gainC)
 	go mc.SerialDevice.command()
 	go mc.GenTestPackets()
 	mc.genToggleChan <- false
 }
 
+// Open ...
 func (mc *MindControl) Open() {
 	mc.SerialDevice.open()
 	buf := make([]byte, readBufferSize)
@@ -82,6 +88,7 @@ func (mc *MindControl) Open() {
 	mc.ResetChan <- true
 }
 
+// Close ...
 func (mc *MindControl) Close() {
 	if mc.saving {
 		mc.quitSave <- true
@@ -109,6 +116,28 @@ func openFile() (*os.File, error) {
 	return file, nil
 }
 
+func openTmpFiles(n int) (files []*os.File, err error) {
+	files = make([]*os.File, n)
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	tmpdir := strconv.FormatInt(time.Now().Unix(), 10)
+	err = os.MkdirAll(wd+"/data/"+tmpdir, 0777)
+	if err != nil {
+		return nil, err
+	}
+	for i := 0; i < n; i++ {
+		fn := "chan" + strconv.Itoa(i)
+		file, err := os.Create(wd + "/data/" + tmpdir + "/" + fn)
+		files[i] = file
+		if err != nil {
+			return nil, err
+		}
+	}
+	return files, nil
+}
+
 func packetToCSV(startTime int64, p *Packet) []byte {
 	timeDiff := time.Now().UnixNano() - startTime
 	row := bytes.NewBufferString(strconv.FormatInt(timeDiff, 10) + "," +
@@ -125,6 +154,35 @@ func packetToCSV(startTime int64, p *Packet) []byte {
 		strconv.FormatInt(int64(p.AccY), 10) + "," +
 		strconv.FormatInt(int64(p.AccZ), 10) + "\n")
 	return row.Bytes()
+}
+
+func (mc *MindControl) saveBDF() {
+	files, err := openTmpFiles(8)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer func() {
+		mc.saving = false
+		for _, f := range files {
+			f.Close()
+		}
+	}()
+	for {
+		select {
+		case p := <-mc.savePacketChan:
+			files[0].Write(p.Rchan1)
+			files[1].Write(p.Rchan2)
+			files[2].Write(p.Rchan3)
+			files[3].Write(p.Rchan4)
+			files[4].Write(p.Rchan5)
+			files[5].Write(p.Rchan6)
+			files[6].Write(p.Rchan7)
+			files[7].Write(p.Rchan8)
+		case <-mc.quitSave:
+			return
+		}
+	}
 }
 
 func (mc *MindControl) save() {
@@ -164,91 +222,11 @@ func (mc *MindControl) save() {
 	}
 }
 
-//decodeStream implements the openbci packet protocol to
-//assemble packets and sends packet arrays onto the packetStream
-func (mc *MindControl) DecodeStream() {
-	var (
-		b             uint8
-		readstate     uint8
-		thisPacket    [33]byte
-		lastPacket    [33]byte
-		seqDiff       uint8
-		syncPktCtr    uint8
-		syncPktThresh uint8
-	)
-	resetMonitorChan := make(chan bool)
-	syncPktThresh = 2
-	for {
-		select {
-		case <-mc.quitDecodeStream:
-			return
-		case <-resetMonitorChan:
-			mc.ReadChan = &mc.SerialDevice.readChan
-		case <-mc.ResetChan:
-			readstate, syncPktCtr = 0, 0
-			var bogusChan chan byte
-			mc.ReadChan = &bogusChan
-			mc.SerialDevice.resetChan <- resetMonitorChan
-		case <-mc.SerialDevice.timeoutChan:
-			lastPacket := lastPacket
-			mc.PacketChan <- encodePacket(&lastPacket, 0, &mc.gain, false)
-		case b = <-*mc.ReadChan:
-			switch readstate {
-			case 0:
-				if b == '\xc0' {
-					readstate++
-				}
-			case 1:
-				if b == '\xa0' {
-					thisPacket[0] = b
-					readstate++
-				} else {
-					readstate = 0
-				}
-			case 2:
-				thisPacket[1] = b
-				seqDiff = difference(b, lastPacket[1])
-				if seqDiff > 1 && syncPktCtr > syncPktThresh {
-					log.Println(seqDiff, "packets behind. Got:", b, "Expected:", lastPacket[1])
-				}
-				for seqDiff > 1 {
-					lastPacket[1]++
-					time.Sleep(4 * time.Millisecond)
-					mc.PacketChan <- encodePacket(&lastPacket, 100-seqDiff, &mc.gain, false)
-					seqDiff--
-				}
-				fallthrough
-			case 3:
-				for j := 2; j < 32; j++ {
-					thisPacket[j] = <-*mc.ReadChan
-				}
-				readstate = 4
-			case 4:
-				switch {
-				case b == '\xc0':
-					thisPacket[32] = b
-					lastPacket = thisPacket
-					if syncPktCtr > syncPktThresh {
-						mc.PacketChan <- encodePacket(&thisPacket, 100, &mc.gain, true)
-					} else {
-						syncPktCtr++
-					}
-					readstate = 1
-				case b != '\xc0':
-					readstate = 0
-					fallthrough
-				case syncPktCtr > syncPktThresh:
-					log.Println("Footer out of sync")
-				}
-			}
-		}
-	}
-}
-
+// GenTestPackets ...
 func (mc *MindControl) GenTestPackets() {
 	var on bool
 	var val float64
-	var i float64 = 0.0
+	var i float64
 	for {
 		select {
 		case <-mc.quitGenTest:
@@ -275,11 +253,13 @@ func (mc *MindControl) GenTestPackets() {
 	}
 }
 
+// Message ...
 type Message struct {
 	Name    string
 	Payload map[string][]float64
 }
 
+// NewMessage ...
 func NewMessage(name string, payload map[string][]float64) *Message {
 	return &Message{
 		Name:    name,
@@ -288,10 +268,11 @@ func NewMessage(name string, payload map[string][]float64) *Message {
 
 }
 
+// CalcFFTBins ...
 func CalcFFTBins(fftSize int) (bins []float64) {
 	bins = make([]float64, fftSize/2)
 	step := float64(samplesPerSecond) / float64(fftSize)
-	for idx, _ := range bins {
+	for idx := range bins {
 		bins[idx] = step * float64(idx)
 	}
 	return bins
@@ -354,7 +335,6 @@ func (mc *MindControl) sendPackets() {
 			if i%RawMsgSize == RawMsgSize-1 {
 				pbRaw.batch()
 				mc.broadcast <- NewMessage("raw", pbRaw.Chans)
-				//pbRaw = NewPacketBatcher(RawMsgSize)
 			}
 
 			if i > FFTSize && i%FFTFreq == FFTFreq-1 {

@@ -19,7 +19,6 @@
 package main
 
 import (
-	"fmt"
 	"html/template"
 	"net/http"
 	"strconv"
@@ -109,6 +108,16 @@ func (handle *Handle) bootstrapHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "bootstrap/"+t+"/"+f)
 }
 
+func (handle *Handle) libsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	p := strings.Split(r.URL.Path, "/")
+	f := p[len(p)-1]
+	http.ServeFile(w, r, "js/libs/"+f)
+}
+
 func (handle *Handle) commandHandler(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.URL.Path, "/x/") == false {
 		http.Error(w, "Not found", 404)
@@ -135,7 +144,6 @@ func (handle *Handle) commandHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handle *Handle) staggerWriter(c string) {
-	fmt.Printf("Writing %s to serial device\n", c)
 	handle.mc.SerialDevice.writeChan <- string(c[0])
 	handle.mc.SerialDevice.writeChan <- string(c[1:8])
 	handle.mc.SerialDevice.writeChan <- string(c[8])
@@ -180,7 +188,7 @@ func (handle *Handle) saveHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	handle.mc.saving = handle.mc.saving != true
 	if handle.mc.saving == true {
-		go handle.mc.save()
+		go handle.mc.saveBDF()
 	} else {
 		handle.mc.quitSave <- true
 	}

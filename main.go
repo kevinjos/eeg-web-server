@@ -61,6 +61,7 @@ func main() {
 	http.HandleFunc("/js/", handle.jsHandler)
 	http.HandleFunc("/static/", handle.cssHandler)
 	http.HandleFunc("/bootstrap/", handle.bootstrapHandler)
+	http.HandleFunc("/js/libs/", handle.libsHandler)
 
 	go h.Run()
 	go mc.Start()
