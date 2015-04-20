@@ -1,15 +1,15 @@
 package main
 
 import (
+	"io"
 	"log"
 	"time"
 )
 
 //DecodeStream implements the openbci packet protocol to
 //assemble packets and sends packet arrays onto the packetStream
-func DecodeStream(quit chan bool, read *chan byte, serialRead chan byte,
-	reset chan bool, serialReset chan chan bool, serialTimeout chan bool, packet chan *Packet,
-	gain chan *[8]float64) {
+func DecodeStream(packet chan *Packet, gain chan *[8]float64, quit chan bool,
+	pause chan chan bool, device io.ReadWriteCloser) {
 	var (
 		b             uint8
 		readstate     uint8
@@ -20,26 +20,25 @@ func DecodeStream(quit chan bool, read *chan byte, serialRead chan byte,
 		syncPktThresh uint8
 		notSyncd      bool
 	)
-	resetMonitorChan := make(chan bool)
+	buf := make([]byte, 1)
 	syncPktThresh = 2
 	gains := [8]float64{24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0}
 	for {
 		select {
 		case <-quit:
 			return
-		case <-resetMonitorChan:
-			read = &serialRead
-		case <-reset:
-			readstate, syncPktCtr = 0, 0
-			var bogusChan chan byte
-			read = &bogusChan
-			serialReset <- reset
-		case <-serialTimeout:
-			lastPacket := lastPacket
-			packet <- encodePacket(&lastPacket, 0, &gains, notSyncd)
 		case g := <-gain:
 			gains = *g
-		case b = <-*read:
+		case resume := <-pause:
+			<-resume
+		default:
+			_, err := device.Read(buf)
+			if err == io.EOF {
+				continue
+			} else if err != nil {
+				log.Fatalf("error reading from device: %s", err)
+			}
+			b = buf[0]
 			switch readstate {
 			case 0:
 				if b == '\xc0' {
@@ -56,7 +55,7 @@ func DecodeStream(quit chan bool, read *chan byte, serialRead chan byte,
 				thisPacket[1] = b
 				seqDiff = difference(b, lastPacket[1])
 				if seqDiff > 1 && syncPktCtr > syncPktThresh {
-					log.Println("%d packets behind", seqDiff)
+					log.Printf("%d packets behind\n", seqDiff)
 				}
 				for seqDiff > 1 {
 					lastPacket[1]++
@@ -67,7 +66,11 @@ func DecodeStream(quit chan bool, read *chan byte, serialRead chan byte,
 				fallthrough
 			case 3:
 				for j := 2; j < 32; j++ {
-					thisPacket[j] = <-*read
+					_, err = device.Read(buf)
+					if err != nil {
+						log.Fatalf("error reading from device: %s\n", err)
+					}
+					thisPacket[j] = buf[0]
 				}
 				readstate = 4
 			case 4:

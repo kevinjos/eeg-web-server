@@ -20,8 +20,11 @@ package main
 
 import (
 	"flag"
+	"log"
 	"net/http"
 	"time"
+
+	"github.com/kevinjos/openbci-driver/openbci"
 )
 
 var addr = flag.String("addr", ":8888", "http service address")
@@ -39,19 +42,24 @@ var location string = "/dev/ttyUSB0"
 
 func main() {
 	h := NewHub()
-	defer h.Close()
+	device, err := openbci.NewDevice(location, baud, readTimeout)
+	if err != nil {
+		log.Fatalf("error opening device: %s", err)
+	}
+	defer func() {
+		device.Close()
+		h.Close()
+	}()
 
 	shutdown := make(chan bool, 1)
-
-	mc := NewMindControl(h.broadcast, shutdown)
-
+	mc := NewMindControl(h.broadcast, shutdown, device)
 	handle := NewHandle(mc)
 
 	http.HandleFunc("/ws", h.wsPacketHandler)
+
 	http.HandleFunc("/", handle.rootHandler)
 	http.HandleFunc("/x/", handle.commandHandler)
 	http.HandleFunc("/fft/", handle.fftHandler)
-	http.HandleFunc("/open", handle.openHandler)
 	http.HandleFunc("/reset", handle.resetHandler)
 	http.HandleFunc("/start", handle.startHandler)
 	http.HandleFunc("/stop", handle.stopHandler)
@@ -65,6 +73,7 @@ func main() {
 
 	go h.Run()
 	go mc.Start()
+
 	run := func(shutdown <-chan bool) {
 		go http.ListenAndServe(*addr, nil)
 		for {

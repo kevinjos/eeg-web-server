@@ -20,6 +20,7 @@ package main
 import (
 	"bytes"
 	"github.com/kevinjos/gofidlib"
+	"io"
 	"log"
 	"math"
 	"os"
@@ -29,18 +30,17 @@ import (
 
 // MindControl ...
 type MindControl struct {
-	ReadChan         *chan byte
 	PacketChan       chan *Packet
 	savePacketChan   chan *Packet
 	deltaFFT         chan [2]int
-	ResetChan        chan bool
 	genToggleChan    chan bool
 	quitGenTest      chan bool
-	quitDecodeStream chan bool
 	quitSendPackets  chan bool
 	quitSave         chan bool
+	quitDecodeStream chan bool
 	shutdown         chan bool
-	SerialDevice     *OpenBCI
+	pauseRead        chan chan bool
+	SerialDevice     io.ReadWriteCloser
 	broadcast        chan *Message
 	gain             [8]float64
 	gainC            chan *[8]float64
@@ -48,22 +48,20 @@ type MindControl struct {
 }
 
 // NewMindControl ...
-func NewMindControl(broadcast chan *Message, shutdown chan bool) *MindControl {
+func NewMindControl(broadcast chan *Message, shutdown chan bool, device io.ReadWriteCloser) *MindControl {
 	//Set up the serial device
-	serialDevice := NewOpenBCI()
 	return &MindControl{
-		ReadChan:         &serialDevice.readChan,
 		PacketChan:       make(chan *Packet),
-		savePacketChan:   make(chan *Packet, 2),
+		savePacketChan:   make(chan *Packet),
 		deltaFFT:         make(chan [2]int),
-		ResetChan:        make(chan bool),
 		quitGenTest:      make(chan bool),
-		quitDecodeStream: make(chan bool),
 		quitSendPackets:  make(chan bool),
 		quitSave:         make(chan bool),
 		genToggleChan:    make(chan bool),
+		quitDecodeStream: make(chan bool),
+		pauseRead:        make(chan chan bool),
 		shutdown:         shutdown,
-		SerialDevice:     serialDevice,
+		SerialDevice:     device,
 		gain:             [8]float64{24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0},
 		broadcast:        broadcast,
 		saving:           false,
@@ -72,20 +70,8 @@ func NewMindControl(broadcast chan *Message, shutdown chan bool) *MindControl {
 
 // Start ...
 func (mc *MindControl) Start() {
-	go mc.sendPackets()
-	go DecodeStream(mc.quitDecodeStream, mc.ReadChan, mc.SerialDevice.readChan, mc.ResetChan,
-		mc.SerialDevice.resetChan, mc.SerialDevice.timeoutChan, mc.PacketChan, mc.gainC)
-	go mc.SerialDevice.command()
-	go mc.GenTestPackets()
-	mc.genToggleChan <- false
-}
-
-// Open ...
-func (mc *MindControl) Open() {
-	mc.SerialDevice.open()
-	buf := make([]byte, readBufferSize)
-	go mc.SerialDevice.read(buf)
-	mc.ResetChan <- true
+	go DecodeStream(mc.PacketChan, mc.gainC, mc.quitDecodeStream, mc.pauseRead, mc.SerialDevice)
+	go mc.SendPackets()
 }
 
 // Close ...
@@ -98,7 +84,6 @@ func (mc *MindControl) Close() {
 	mc.quitSendPackets <- true
 	close(mc.quitGenTest)
 	close(mc.PacketChan)
-	close(mc.ResetChan)
 	close(mc.genToggleChan)
 	mc.shutdown <- true
 }
@@ -278,7 +263,7 @@ func CalcFFTBins(fftSize int) (bins []float64) {
 	return bins
 }
 
-func (mc *MindControl) sendPackets() {
+func (mc *MindControl) SendPackets() {
 	var (
 		i int
 	)
