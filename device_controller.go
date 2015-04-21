@@ -19,126 +19,71 @@ package main
 
 import (
 	"bytes"
-	"github.com/kevinjos/gofidlib"
 	"io"
 	"log"
-	"math"
 	"os"
-	"strconv"
 	"time"
+
+	"github.com/kevinjos/gofidlib"
 )
 
 // MindControl ...
 type MindControl struct {
+	SerialDevice     io.ReadWriteCloser
 	PacketChan       chan *Packet
 	savePacketChan   chan *Packet
 	deltaFFT         chan [2]int
-	genToggleChan    chan bool
 	quitGenTest      chan bool
 	quitSendPackets  chan bool
 	quitSave         chan bool
 	quitDecodeStream chan bool
-	shutdown         chan bool
 	pauseRead        chan chan bool
-	SerialDevice     io.ReadWriteCloser
-	broadcast        chan *Message
-	gain             [8]float64
 	gainC            chan *[8]float64
+	shutdown         chan bool
+	broadcast        chan *message
+	gain             [8]float64
 	saving           bool
+	genTesting       bool
 }
 
 // NewMindControl ...
-func NewMindControl(broadcast chan *Message, shutdown chan bool, device io.ReadWriteCloser) *MindControl {
+func NewMindControl(broadcast chan *message, shutdown chan bool, device io.ReadWriteCloser) *MindControl {
 	//Set up the serial device
 	return &MindControl{
+		SerialDevice:     device,
 		PacketChan:       make(chan *Packet),
 		savePacketChan:   make(chan *Packet),
 		deltaFFT:         make(chan [2]int),
 		quitGenTest:      make(chan bool),
 		quitSendPackets:  make(chan bool),
 		quitSave:         make(chan bool),
-		genToggleChan:    make(chan bool),
 		quitDecodeStream: make(chan bool),
 		pauseRead:        make(chan chan bool),
+		gainC:            make(chan *[8]float64),
 		shutdown:         shutdown,
-		SerialDevice:     device,
-		gain:             [8]float64{24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0},
 		broadcast:        broadcast,
+		gain:             [8]float64{24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0, 24.0},
 		saving:           false,
+		genTesting:       false,
 	}
 }
 
-// Start ...
+// Start necessary go routines
 func (mc *MindControl) Start() {
 	go DecodeStream(mc.PacketChan, mc.gainC, mc.quitDecodeStream, mc.pauseRead, mc.SerialDevice)
-	go mc.SendPackets()
+	go mc.sendPackets()
 }
 
-// Close ...
+// Close go routines and channels started by MindControl
 func (mc *MindControl) Close() {
 	if mc.saving {
 		mc.quitSave <- true
 	}
 	mc.SerialDevice.Close()
 	mc.quitDecodeStream <- true
-	mc.quitSendPackets <- true
+	close(mc.quitSendPackets)
 	close(mc.quitGenTest)
-	close(mc.PacketChan)
-	close(mc.genToggleChan)
-	mc.shutdown <- true
-}
-
-func openFile() (*os.File, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	fn := time.Now().String()
-	file, err := os.Create(wd + "/data/" + fn)
-	if err != nil {
-		return nil, err
-	}
-	return file, nil
-}
-
-func openTmpFiles(n int) (files []*os.File, err error) {
-	files = make([]*os.File, n)
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	tmpdir := strconv.FormatInt(time.Now().Unix(), 10)
-	err = os.MkdirAll(wd+"/data/"+tmpdir, 0777)
-	if err != nil {
-		return nil, err
-	}
-	for i := 0; i < n; i++ {
-		fn := "chan" + strconv.Itoa(i)
-		file, err := os.Create(wd + "/data/" + tmpdir + "/" + fn)
-		files[i] = file
-		if err != nil {
-			return nil, err
-		}
-	}
-	return files, nil
-}
-
-func packetToCSV(startTime int64, p *Packet) []byte {
-	timeDiff := time.Now().UnixNano() - startTime
-	row := bytes.NewBufferString(strconv.FormatInt(timeDiff, 10) + "," +
-		strconv.FormatBool(p.Synced) + "," +
-		strconv.FormatFloat(p.Chan1, 'G', 8, 64) + "," +
-		strconv.FormatFloat(p.Chan2, 'G', 8, 64) + "," +
-		strconv.FormatFloat(p.Chan3, 'G', 8, 64) + "," +
-		strconv.FormatFloat(p.Chan4, 'G', 8, 64) + "," +
-		strconv.FormatFloat(p.Chan5, 'G', 8, 64) + "," +
-		strconv.FormatFloat(p.Chan6, 'G', 8, 64) + "," +
-		strconv.FormatFloat(p.Chan7, 'G', 8, 64) + "," +
-		strconv.FormatFloat(p.Chan8, 'G', 8, 64) + "," +
-		strconv.FormatInt(int64(p.AccX), 10) + "," +
-		strconv.FormatInt(int64(p.AccY), 10) + "," +
-		strconv.FormatInt(int64(p.AccZ), 10) + "\n")
-	return row.Bytes()
+	close(mc.shutdown)
 }
 
 func (mc *MindControl) saveBDF() {
@@ -185,7 +130,7 @@ func (mc *MindControl) save() {
 					mc.saving = false
 				}()
 				header := bytes.NewBufferString(`NanoSec,Synced,Chan1,Chan2,Chan3,Chan4,Chan5,Chan6,Chan7,Chan8,AccX,AccY,AccZ
-`)
+	`)
 				_, err := file.Write(header.Bytes())
 				if err != nil {
 					log.Println(err)
@@ -207,66 +152,8 @@ func (mc *MindControl) save() {
 	}
 }
 
-// GenTestPackets ...
-func (mc *MindControl) GenTestPackets() {
-	var on bool
-	var val float64
-	var i float64
-	for {
-		select {
-		case <-mc.quitGenTest:
-			return
-		case on = <-mc.genToggleChan:
-			on = <-mc.genToggleChan
-		default:
-			if on {
-				i = i + 0.04
-				val = 0.1*math.Sin(2.0*math.Pi*i) + 0.1*math.Cos(2.0*math.Pi*0.2*i)
-				packet := NewPacket()
-				packet.Chan1 = val
-				packet.Chan2 = val
-				packet.Chan3 = val
-				packet.Chan4 = val
-				packet.Chan5 = val
-				packet.Chan6 = val
-				packet.Chan7 = val
-				packet.Chan8 = val
-				mc.PacketChan <- packet
-				time.Sleep(4 * time.Millisecond)
-			}
-		}
-	}
-}
-
-// Message ...
-type Message struct {
-	Name    string
-	Payload map[string][]float64
-}
-
-// NewMessage ...
-func NewMessage(name string, payload map[string][]float64) *Message {
-	return &Message{
-		Name:    name,
-		Payload: payload,
-	}
-
-}
-
-// CalcFFTBins ...
-func CalcFFTBins(fftSize int) (bins []float64) {
-	bins = make([]float64, fftSize/2)
-	step := float64(samplesPerSecond) / float64(fftSize)
-	for idx := range bins {
-		bins[idx] = step * float64(idx)
-	}
-	return bins
-}
-
-func (mc *MindControl) SendPackets() {
-	var (
-		i int
-	)
+func (mc *MindControl) sendPackets() {
+	var i int
 
 	FFTSize := 250
 	FFTFreq := 50
@@ -319,20 +206,32 @@ func (mc *MindControl) SendPackets() {
 
 			if i%RawMsgSize == RawMsgSize-1 {
 				pbRaw.batch()
-				mc.broadcast <- NewMessage("raw", pbRaw.Chans)
+				mc.broadcast <- newMessage("raw", pbRaw.Chans)
 			}
 
 			if i > FFTSize && i%FFTFreq == FFTFreq-1 {
 				pbFFT.batch()
 				pbFFT.setFFT()
-				mc.broadcast <- NewMessage("fft", pbFFT.FFTs)
+				mc.broadcast <- newMessage("fft", pbFFT.FFTs)
 				binMsg := make(map[string][]float64)
-				binMsg["fftBins"] = CalcFFTBins(FFTSize)
-				mc.broadcast <- NewMessage("fftBins", binMsg)
+				binMsg["fftBins"] = calcFFTBins(FFTSize)
+				mc.broadcast <- newMessage("fftBins", binMsg)
 			}
 
 			i++
 
 		}
+	}
+}
+
+type message struct {
+	Name    string
+	Payload map[string][]float64
+}
+
+func newMessage(name string, payload map[string][]float64) *message {
+	return &message{
+		Name:    name,
+		Payload: payload,
 	}
 }

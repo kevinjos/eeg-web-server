@@ -42,7 +42,7 @@ var upgrader = websocket.Upgrader{
 }
 
 type WSConn struct {
-	send   chan *Message
+	send   chan *message
 	wsConn *websocket.Conn
 }
 
@@ -56,7 +56,7 @@ func NewWSConn(w http.ResponseWriter, r *http.Request) (*WSConn, error) {
 	}
 	return &WSConn{
 		wsConn: conn,
-		send:   make(chan *Message, 32),
+		send:   make(chan *message, 32),
 	}, err
 }
 
@@ -65,7 +65,7 @@ func (ws *WSConn) write(mt int, payload []byte) error {
 	return ws.wsConn.WriteMessage(mt, payload)
 }
 
-func (ws *WSConn) writeJson(payload *Message) error {
+func (ws *WSConn) writeJSON(payload *message) error {
 	ws.wsConn.SetWriteDeadline(time.Now().Add(writeWait))
 	return ws.wsConn.WriteJSON(payload)
 }
@@ -80,7 +80,7 @@ func (ws *WSConn) WritePump(h *hub) {
 	for {
 		select {
 		case message := <-ws.send:
-			if err := ws.writeJson(message); err != nil {
+			if err := ws.writeJSON(message); err != nil {
 				return
 			}
 		case <-ticker.C:
@@ -91,8 +91,9 @@ func (ws *WSConn) WritePump(h *hub) {
 	}
 }
 
-//The brower is responsible for closing the websocket connection.
-//To do so it will write a close conn message picked up by ReadPump.
+//ReadPump listens for messages from the browser. In this case,
+//the brower is responsible for closing the websocket connection.
+//To do so it will write a close conn message to the ReadPump.
 func (ws *WSConn) ReadPump(h *hub) {
 	defer func() {
 		h.unregister <- ws

@@ -28,23 +28,26 @@ import (
 )
 
 var addr = flag.String("addr", ":8888", "http service address")
+var location = flag.String("loc", "/dev/ttyUSB0", "serial mount point")
+var baud = flag.Int("baud", 115200, "serial baud rate")
+var readTimeout = time.Millisecond
 
 const (
 	channels         = 8
 	samplesPerSecond = 250
-	readTimeout      = 100 * time.Millisecond
 	readBufferSize   = 1024 * 1024
-	baud             = 115200
 	RawMsgSize       = 30
 )
 
-var location string = "/dev/ttyUSB0"
-
 func main() {
+	flag.DurationVar(&readTimeout, "rt", 100*time.Millisecond, "serial readtimeout in milliseconds")
+	flag.Parse()
+
 	h := NewHub()
-	device, err := openbci.NewDevice(location, baud, readTimeout)
+
+	device, err := openbci.NewDevice(*location, *baud, readTimeout)
 	if err != nil {
-		log.Fatalf("error opening device: %s", err)
+		log.Fatalf("error opening device: %s\n", err)
 	}
 	defer func() {
 		device.Close()

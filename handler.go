@@ -138,7 +138,9 @@ func (handle *Handle) commandHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for i := 0; i < lenCommand; i++ {
-		if i%9 == 0 && i+9 < lenCommand {
+		if lenCommand < 9 {
+			handle.mc.SerialDevice.Write([]byte{command[i]})
+		} else if i%9 == 0 && i+9 < lenCommand {
 			handle.staggerWriter(command[i : i+9])
 		} else if i%9 == 0 {
 			handle.staggerWriter(command[i:])
@@ -208,7 +210,12 @@ func (handle *Handle) testHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	handle.mc.genToggleChan <- true
+	handle.mc.genTesting = !handle.mc.genTesting
+	if handle.mc.genTesting == false {
+		handle.mc.quitGenTest <- true
+	} else {
+		go genTestPackets(handle.mc.PacketChan, handle.mc.quitGenTest)
+	}
 }
 
 func (handle *Handle) fftHandler(w http.ResponseWriter, r *http.Request) {
