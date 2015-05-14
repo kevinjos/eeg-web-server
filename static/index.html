@@ -8,35 +8,36 @@
     <script type="text/javascript">
       if (window["WebSocket"]) {
         conn = new WebSocket("ws://{{$}}/ws");
+
         conn.onclose = function(evt) {
           console.log("closing");
         }
+
         conn.onmessage = function(evt) {
           rdata = JSON.parse(evt.data);
-					if (rdata == null) {
-						return
-					} else if (rdata.Name == "fftBins") {
-						// console.log(rdata.Payload["fftBins"])
-					} else if (rdata.Name == "raw") {
-						for(var chan=1; chan<9; chan++) {
-							window['updaterawchan'+chan](rdata.Payload['Chan'+chan])
-						}
-					} else if (rdata.Name == "fft") {
-						for(var chan=1; chan<9; chan++) {
-							rdata.Payload['Chan'+chan] = rdata.Payload['Chan'+chan].map(Math.log)
-							for(var i=window.fft1.shape[0]-1; i>=0; i--) {
-								for(var j=window.fft1.shape[1]-1; j>=0; j--) {
-									if(j==0){
-										window['fft'+chan].set(i, j, rdata.Payload['Chan'+chan][i])
-									} else {
-										window['fft'+chan].set(i, j, window['fft'+chan].get(i, j-1))
-									}
-								}
-							}
-							window['surface'+chan].update({'field': window['fft'+chan]})
-						}
-					}
+	  if (rdata == null) {
+            return
+	  } else if (rdata.Name == "raw") {
+            for(var chan=1; chan<9; chan++) {
+              window['updaterawchan'+chan](rdata.Payload['Chan'+chan])
+            }
+          } else if (rdata.Name == "fft") {
+            console.log(rdata.Payload['Chan1']);
+            for(var chan=1; chan<9; chan++) {
+              for(var i=window.fft1.shape[0]-1; i>=0; i--) {
+                for(var j=window.fft1.shape[1]-1; j>=0; j--) {
+                  if(j==0){
+                    window['fft'+chan].set(i, j, rdata.Payload['Chan'+chan][i]);
+                  } else {
+                    window['fft'+chan].set(i, j, window['fft'+chan].get(i, j-1));
+                  }
+                }
+              }
+            window['surface'+chan].update({'field': window['fft'+chan]});
+            }
+          }
         }
+
         conn.onopen = function(evt) {
           console.log("opening");
         }

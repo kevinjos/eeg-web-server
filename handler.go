@@ -25,7 +25,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kevinjos/openbci-driver/openbci"
+	"github.com/kevinjos/openbci-driver"
 )
 
 type Handle struct {

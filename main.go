@@ -24,7 +24,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kevinjos/openbci-driver/openbci"
+	"github.com/kevinjos/openbci-driver"
 )
 
 var addr = flag.String("addr", ":8888", "http service address")

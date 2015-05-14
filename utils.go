@@ -94,3 +94,13 @@ func packetToCSV(startTime int64, p *Packet) []byte {
 		strconv.FormatInt(int64(p.AccZ), 10) + "\n")
 	return row.Bytes()
 }
+
+func normalizeInPlace(input []float64) {
+	var total float64
+	for _, val := range input {
+		total += val
+	}
+	for idx := range input {
+		input[idx] /= total
+	}
+}

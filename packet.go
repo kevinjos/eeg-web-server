@@ -80,6 +80,7 @@ func (pb *PacketBatcher) setFFT() {
 	for key, val := range pb.Chans {
 		mirrored := pb.dft(val)
 		pb.FFTs[key] = mirrored[:len(mirrored)/2]
+		normalizeInPlace(pb.FFTs[key])
 	}
 }
 
