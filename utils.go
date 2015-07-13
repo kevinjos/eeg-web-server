@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"math"
-	"os"
 	"strconv"
 	"time"
 )
@@ -29,52 +28,25 @@ func genTestPackets(p chan *Packet, quit chan bool) {
 			val = 0.1*math.Sin(2.0*math.Pi*i) + 0.1*math.Cos(2.0*math.Pi*0.2*i)
 			packet := NewPacket()
 			packet.Chan1 = val
+			packet.Rchan1 = []byte{'\x21', '\x21', '\x21'}
 			packet.Chan2 = val
+			packet.Rchan2 = []byte{'\x21', '\x21', '\x21'}
 			packet.Chan3 = val
+			packet.Rchan3 = []byte{'\x21', '\x21', '\x21'}
 			packet.Chan4 = val
+			packet.Rchan4 = []byte{'\x21', '\x21', '\x21'}
 			packet.Chan5 = val
+			packet.Rchan5 = []byte{'\x21', '\x21', '\x21'}
 			packet.Chan6 = val
+			packet.Rchan6 = []byte{'\x21', '\x21', '\x21'}
 			packet.Chan7 = val
+			packet.Rchan7 = []byte{'\x21', '\x21', '\x21'}
 			packet.Chan8 = val
+			packet.Rchan8 = []byte{'\x21', '\x21', '\x21'}
 			p <- packet
 			time.Sleep(4 * time.Millisecond)
 		}
 	}
-}
-
-func openFile() (*os.File, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	fn := time.Now().String()
-	file, err := os.Create(wd + "/data/" + fn)
-	if err != nil {
-		return nil, err
-	}
-	return file, nil
-}
-
-func openTmpFiles(n int) (files []*os.File, err error) {
-	files = make([]*os.File, n)
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	tmpdir := strconv.FormatInt(time.Now().Unix(), 10)
-	err = os.MkdirAll(wd+"/data/"+tmpdir, 0777)
-	if err != nil {
-		return nil, err
-	}
-	for i := 0; i < n; i++ {
-		fn := "chan" + strconv.Itoa(i)
-		file, err := os.Create(wd + "/data/" + tmpdir + "/" + fn)
-		files[i] = file
-		if err != nil {
-			return nil, err
-		}
-	}
-	return files, nil
 }
 
 func packetToCSV(startTime int64, p *Packet) []byte {

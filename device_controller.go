@@ -18,12 +18,13 @@
 package main
 
 import (
-	"bytes"
 	"io"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
+	"github.com/kevinjos/goedf"
 	"github.com/kevinjos/gofidlib"
 )
 
@@ -86,21 +87,67 @@ func (mc *MindControl) Close() {
 	close(mc.shutdown)
 }
 
-func (mc *MindControl) saveBDF() {
-	files, err := openTmpFiles(8)
+func (mc *MindControl) saveEDF() {
+	var ns int
+	wd, err := os.Getwd()
 	if err != nil {
 		log.Println(err)
 		return
+	}
+	wd += "/data/"
+	files := make([]*os.File, channels)
+	tmpdir := wd + strconv.FormatInt(time.Now().Unix(), 10)
+	err = os.MkdirAll(tmpdir, 0777)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	for i := 0; i < channels; i++ {
+		fn := "chan" + strconv.Itoa(i)
+		file, err := os.Create(tmpdir + "/" + fn)
+		files[i] = file
+		if err != nil {
+			log.Println(err)
+			return
+		}
 	}
 	defer func() {
 		mc.saving = false
 		for _, f := range files {
 			f.Close()
 		}
+		err = os.RemoveAll(tmpdir)
+		if err != nil {
+			log.Println(err)
+		}
 	}()
+	// crunch know EDF header quantities
+	startts := time.Now()
+	version := "0"
+	LRID := "Startdate " + startts.Format("02-JAN-2006")
+	startdate := startts.Format("02.01.06")
+	starttime := startts.Format("15.04.05")
+	numbytes := strconv.Itoa(edf.FixedHeaderBytes + edf.VariableHeaderBytes*channels)
+	reserved := "EDF+C"
+	numsignals := strconv.Itoa(channels)
+	numdatar := "1"
+	phydims := []string{"uv", "uv", "uv", "uv", "uv", "uv", "uv", "uv"}
+	phymins := make([]string, channels)
+	phymaxs := make([]string, channels)
+	nsreserved := make([]string, channels)
+	for idx, val := range mc.gain {
+		phymins[idx] = strconv.FormatFloat(scaleToMicroVolts(-8388608, val), 'f', 0, 64)
+		phymaxs[idx] = strconv.FormatFloat(scaleToMicroVolts(8388607, val), 'f', 0, 64)
+		nsreserved[idx] = "3"
+	}
+	digmins := []string{"-8388608", "-8388608", "-8388608", "-8388608",
+		"-8388608", "-8388608", "-8388608", "-8388608"}
+	digmaxs := []string{"8388607", "8388607", "8388607", "8388607",
+		"8388607", "8388607", "8388607", "8388607"}
 	for {
 		select {
 		case p := <-mc.savePacketChan:
+			ns++
 			files[0].Write(p.Rchan1)
 			files[1].Write(p.Rchan2)
 			files[2].Write(p.Rchan3)
@@ -110,43 +157,56 @@ func (mc *MindControl) saveBDF() {
 			files[6].Write(p.Rchan7)
 			files[7].Write(p.Rchan8)
 		case <-mc.quitSave:
-			return
-		}
-	}
-}
-
-func (mc *MindControl) save() {
-	var file *os.File
-	fileState := 1
-	startTime := time.Now().UnixNano()
-	for {
-		select {
-		case p := <-mc.savePacketChan:
-			switch fileState {
-			case 1:
-				file, _ = openFile()
-				defer func() {
-					file.Close()
-					mc.saving = false
-				}()
-				header := bytes.NewBufferString(`NanoSec,Synced,Chan1,Chan2,Chan3,Chan4,Chan5,Chan6,Chan7,Chan8,AccX,AccY,AccZ
-	`)
-				_, err := file.Write(header.Bytes())
+			endts := time.Now()
+			duration := strconv.FormatFloat(endts.Sub(startts).Seconds(), 'f', 3, 64)
+			numsamples := make([]string, channels)
+			for idx := range numsamples {
+				numsamples[idx] = strconv.Itoa(ns)
+			}
+			h, err := edf.NewHeader(edf.Version(version),
+				edf.LocalRecordID(LRID),
+				edf.Startdate(startdate),
+				edf.Starttime(starttime),
+				edf.NumBytes(numbytes),
+				edf.Reserved(reserved),
+				edf.NumDataRecord(numdatar),
+				edf.Duration(duration),
+				edf.NumSignal(numsignals),
+				edf.PhysicalDimensions(phydims),
+				edf.PhysicalMaxs(phymaxs),
+				edf.PhysicalMins(phymins),
+				edf.DigitalMaxs(digmaxs),
+				edf.DigitalMins(digmins),
+				edf.NumSamples(numsamples),
+				edf.NSReserved(nsreserved))
+			if err != nil {
+				log.Println(err)
+			}
+			edfs := edf.NewEDF(h, []*edf.Data{})
+			buf, err := edf.Marshal(edfs)
+			if err != nil {
+				log.Println(err)
+			}
+			outfn := wd + strconv.FormatInt(endts.Unix(), 10) + ".edf"
+			outfd, err := os.Create(outfn)
+			if err != nil {
+				log.Println(err)
+			}
+			defer outfd.Close()
+			_, err = outfd.Write(buf)
+			if err != nil {
+				log.Println(err)
+			}
+			for _, fd := range files {
+				_, err = fd.Seek(0, 0)
 				if err != nil {
 					log.Println(err)
-					return
 				}
-				fileState++
-				fallthrough
-			case 2:
-				row := packetToCSV(startTime, p)
-				_, err := file.Write(row)
+				_, err := io.Copy(outfd, fd)
 				if err != nil {
 					log.Println(err)
-					return
 				}
 			}
-		case <-mc.quitSave:
 			return
 		}
 	}

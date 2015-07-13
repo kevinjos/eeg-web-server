@@ -185,7 +185,7 @@ func (handle *Handle) saveHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	handle.mc.saving = handle.mc.saving != true
 	if handle.mc.saving == true {
-		go handle.mc.saveBDF()
+		go handle.mc.saveEDF()
 	} else {
 		handle.mc.quitSave <- true
 	}
