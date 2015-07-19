@@ -87,7 +87,7 @@ func (mc *MindControl) Close() {
 	close(mc.shutdown)
 }
 
-func (mc *MindControl) saveEDF() {
+func (mc *MindControl) saveBDF() {
 	var ns int
 	wd, err := os.Getwd()
 	if err != nil {
@@ -121,14 +121,14 @@ func (mc *MindControl) saveEDF() {
 			log.Println(err)
 		}
 	}()
-	// crunch know EDF header quantities
 	startts := time.Now()
-	version := "0"
+	// crunch know EDF header quantities
+	version := "\xffBIOSEMI"
 	LRID := "Startdate " + startts.Format("02-JAN-2006")
 	startdate := startts.Format("02.01.06")
 	starttime := startts.Format("15.04.05")
-	numbytes := strconv.Itoa(edf.FixedHeaderBytes + edf.VariableHeaderBytes*channels)
-	reserved := "EDF+C"
+	numbytes := strconv.Itoa(biosigio.FixedHeaderBytes + biosigio.VariableHeaderBytes*channels)
+	reserved := "24BIT"
 	numsignals := strconv.Itoa(channels)
 	numdatar := "1"
 	phydims := []string{"uv", "uv", "uv", "uv", "uv", "uv", "uv", "uv"}
@@ -163,27 +163,27 @@ func (mc *MindControl) saveEDF() {
 			for idx := range numsamples {
 				numsamples[idx] = strconv.Itoa(ns)
 			}
-			h, err := edf.NewHeader(edf.Version(version),
-				edf.LocalRecordID(LRID),
-				edf.Startdate(startdate),
-				edf.Starttime(starttime),
-				edf.NumBytes(numbytes),
-				edf.Reserved(reserved),
-				edf.NumDataRecord(numdatar),
-				edf.Duration(duration),
-				edf.NumSignal(numsignals),
-				edf.PhysicalDimensions(phydims),
-				edf.PhysicalMaxs(phymaxs),
-				edf.PhysicalMins(phymins),
-				edf.DigitalMaxs(digmaxs),
-				edf.DigitalMins(digmins),
-				edf.NumSamples(numsamples),
-				edf.NSReserved(nsreserved))
+			h, err := biosigio.NewHeader(biosigio.Version(version),
+				biosigio.LocalRecordID(LRID),
+				biosigio.Startdate(startdate),
+				biosigio.Starttime(starttime),
+				biosigio.NumBytes(numbytes),
+				biosigio.Reserved(reserved),
+				biosigio.NumDataRecord(numdatar),
+				biosigio.Duration(duration),
+				biosigio.NumSignal(numsignals),
+				biosigio.PhysicalDimensions(phydims),
+				biosigio.PhysicalMaxs(phymaxs),
+				biosigio.PhysicalMins(phymins),
+				biosigio.DigitalMaxs(digmaxs),
+				biosigio.DigitalMins(digmins),
+				biosigio.NumSamples(numsamples),
+				biosigio.NSReserved(nsreserved))
 			if err != nil {
 				log.Println(err)
 			}
-			edfs := edf.NewEDF(h, []*edf.Data{})
-			buf, err := edf.Marshal(edfs)
+			bdf := biosigio.NewBDF(h, []*biosigio.BDFData{})
+			buf, err := biosigio.MarshalBDF(bdf)
 			if err != nil {
 				log.Println(err)
 			}
