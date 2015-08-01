@@ -19,6 +19,7 @@
 package main
 
 import (
+	"github.com/kevinjos/int24"
 	"github.com/runningwild/go-fftw/fftw"
 	"math/cmplx"
 	"strconv"
@@ -132,41 +133,28 @@ func (p *Packet) RawChans() map[string][]float64 {
 func encodePacket(p *[33]byte, sq byte, gain *[8]float64, synced bool) *Packet {
 	packet := NewPacket()
 	packet.seqNum = p[1]
-	packet.Chan1 = scaleToMicroVolts(convert24bitTo32bit(p[2:5]), gain[0])
+	packet.Chan1 = scaleToMicroVolts(int24.Unmarshal(p[2:5]), gain[0])
 	packet.Rchan1 = p[2:5]
-	packet.Chan2 = scaleToMicroVolts(convert24bitTo32bit(p[5:8]), gain[1])
-	packet.Rchan2 = p[2:5]
-	packet.Chan3 = scaleToMicroVolts(convert24bitTo32bit(p[8:11]), gain[2])
-	packet.Rchan3 = p[2:5]
-	packet.Chan4 = scaleToMicroVolts(convert24bitTo32bit(p[11:14]), gain[3])
-	packet.Rchan4 = p[2:5]
-	packet.Chan5 = scaleToMicroVolts(convert24bitTo32bit(p[14:17]), gain[4])
-	packet.Rchan5 = p[2:5]
-	packet.Chan6 = scaleToMicroVolts(convert24bitTo32bit(p[17:20]), gain[5])
-	packet.Rchan6 = p[2:5]
-	packet.Chan7 = scaleToMicroVolts(convert24bitTo32bit(p[20:23]), gain[6])
-	packet.Rchan7 = p[2:5]
-	packet.Chan8 = scaleToMicroVolts(convert24bitTo32bit(p[23:26]), gain[7])
-	packet.Rchan8 = p[2:5]
+	packet.Chan2 = scaleToMicroVolts(int24.Unmarshal(p[5:8]), gain[1])
+	packet.Rchan2 = p[5:8]
+	packet.Chan3 = scaleToMicroVolts(int24.Unmarshal(p[8:11]), gain[2])
+	packet.Rchan3 = p[8:11]
+	packet.Chan4 = scaleToMicroVolts(int24.Unmarshal(p[11:14]), gain[3])
+	packet.Rchan4 = p[11:14]
+	packet.Chan5 = scaleToMicroVolts(int24.Unmarshal(p[14:17]), gain[4])
+	packet.Rchan5 = p[14:17]
+	packet.Chan6 = scaleToMicroVolts(int24.Unmarshal(p[17:20]), gain[5])
+	packet.Rchan6 = p[17:20]
+	packet.Chan7 = scaleToMicroVolts(int24.Unmarshal(p[20:23]), gain[6])
+	packet.Rchan7 = p[20:23]
+	packet.Chan8 = scaleToMicroVolts(int24.Unmarshal(p[23:26]), gain[7])
+	packet.Rchan8 = p[23:26]
 	packet.AccX = convert16bitTo32bit(p[26:28])
 	packet.AccY = convert16bitTo32bit(p[28:30])
 	packet.AccZ = convert16bitTo32bit(p[30:32])
 	packet.SignalQuality = sq
 	packet.Synced = synced
 	return packet
-}
-
-//conver24bitTo32bit takes a byte slice of len 3
-//and converts the 24bit 2's complement integer
-//to the type int32 representation
-func convert24bitTo32bit(c []byte) int32 {
-	x := int((int(c[0]) << 16) | (int(c[1]) << 8) | int(c[2]))
-	if (x & 8388608) > 0 {
-		x |= 4278190080
-	} else {
-		x &= 16777215
-	}
-	return int32(x)
 }
 
 //At 24x gain, the possible range is +/-187,500uV

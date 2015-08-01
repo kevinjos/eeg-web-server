@@ -22,31 +22,6 @@ import (
 	"testing"
 )
 
-type test24pair struct {
-	data   []byte
-	result int32
-}
-
-var tests24 = []test24pair{
-	{[]byte{0, 0, 0}, 0},
-	{[]byte{255, 255, 255}, -1},
-	{[]byte{128, 0, 0}, -8388608},
-	{[]byte{127, 255, 255}, 8388607},
-}
-
-func TestConvert24bitTo32bit(t *testing.T) {
-	for _, pair := range tests24 {
-		res := convert24bitTo32bit(pair.data)
-		if res != pair.result {
-			t.Error(
-				"For", pair.data,
-				"expected", pair.result,
-				"got", res,
-			)
-		}
-	}
-}
-
 type test16pair struct {
 	data   []byte
 	result int16
@@ -131,30 +106,5 @@ func TestNewPacket(t *testing.T) {
 			"expected \xa0 and \xc0",
 			"got", p.header, "and", p.footer,
 		)
-	}
-}
-
-type testencodepair struct {
-	p      *[33]byte
-	result *Packet
-}
-
-var testsencode = []testencodepair{
-	{&[33]byte{}, NewPacket()},
-}
-
-func TestEncodePacket(t *testing.T) {
-	bc := make(chan *Message)
-	sd := make(chan bool)
-	mc := NewMindControl(bc, sd)
-	for _, pair := range testsencode {
-		res := encodePacket(pair.p, 100, &mc.gain, false)
-		if *res != *pair.result {
-			t.Error(
-				"For x", pair.p,
-				"expected", pair.result,
-				"got", res,
-			)
-		}
 	}
 }
