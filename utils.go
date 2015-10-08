@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
-	"math"
-	"strconv"
+	"github.com/kevinjos/openbci-golang-server/int24"
 	"time"
 )
 
@@ -17,54 +15,45 @@ func calcFFTBins(fftSize int) (bins []float64) {
 }
 
 func genTestPackets(p chan *Packet, quit chan bool) {
-	var val float64
-	var i float64
+	var val int32
 	for {
 		select {
 		case <-quit:
 			return
 		default:
-			i = i + 0.04
-			val = 0.1*math.Sin(2.0*math.Pi*i) + 0.1*math.Cos(2.0*math.Pi*0.2*i)
+			val = val + 10000
+			if val == 1<<22 {
+				val = -1 * (1 << 22)
+			}
 			packet := NewPacket()
-			packet.Chan1 = val
-			packet.Rchan1 = []byte{'\x21', '\x21', '\x21'}
-			packet.Chan2 = val
-			packet.Rchan2 = []byte{'\x21', '\x21', '\x21'}
-			packet.Chan3 = val
-			packet.Rchan3 = []byte{'\x21', '\x21', '\x21'}
-			packet.Chan4 = val
-			packet.Rchan4 = []byte{'\x21', '\x21', '\x21'}
-			packet.Chan5 = val
-			packet.Rchan5 = []byte{'\x21', '\x21', '\x21'}
-			packet.Chan6 = val
-			packet.Rchan6 = []byte{'\x21', '\x21', '\x21'}
-			packet.Chan7 = val
-			packet.Rchan7 = []byte{'\x21', '\x21', '\x21'}
-			packet.Chan8 = val
-			packet.Rchan8 = []byte{'\x21', '\x21', '\x21'}
+			v1 := val * (1 << 1)
+			packet.Rchan1 = int24.MarshalSBE(v1)
+			v2 := val * (1 << 2)
+			packet.Rchan2 = int24.MarshalSBE(v2)
+			v3 := val * (1 << 3)
+			packet.Rchan3 = int24.MarshalSBE(v3)
+			v4 := val * (1 << 4)
+			packet.Rchan4 = int24.MarshalSBE(v4)
+			v5 := val * (1 << 5)
+			packet.Rchan5 = int24.MarshalSBE(v5)
+			v6 := val * (1 << 6)
+			packet.Rchan6 = int24.MarshalSBE(v6)
+			v7 := val * (1 << 7)
+			packet.Rchan7 = int24.MarshalSBE(v7)
+			v8 := val * (1 << 8)
+			packet.Rchan8 = int24.MarshalSBE(v8)
+			packet.Chan1 = scaleToMicroVolts(v1, 24.0)
+			packet.Chan2 = scaleToMicroVolts(v2, 24.0)
+			packet.Chan3 = scaleToMicroVolts(v3, 24.0)
+			packet.Chan4 = scaleToMicroVolts(v4, 24.0)
+			packet.Chan5 = scaleToMicroVolts(v5, 24.0)
+			packet.Chan6 = scaleToMicroVolts(v6, 24.0)
+			packet.Chan7 = scaleToMicroVolts(v7, 24.0)
+			packet.Chan8 = scaleToMicroVolts(v8, 24.0)
 			p <- packet
 			time.Sleep(4 * time.Millisecond)
 		}
 	}
-}
-
-func packetToCSV(startTime int64, p *Packet) []byte {
-	timeDiff := time.Now().UnixNano() - startTime
-	row := bytes.NewBufferString(strconv.FormatInt(timeDiff, 10) + "," +
-		strconv.FormatBool(p.Synced) + "," +
-		strconv.FormatFloat(p.Chan1, 'G', 8, 64) + "," +
-		strconv.FormatFloat(p.Chan2, 'G', 8, 64) + "," +
-		strconv.FormatFloat(p.Chan3, 'G', 8, 64) + "," +
-		strconv.FormatFloat(p.Chan4, 'G', 8, 64) + "," +
-		strconv.FormatFloat(p.Chan5, 'G', 8, 64) + "," +
-		strconv.FormatFloat(p.Chan6, 'G', 8, 64) + "," +
-		strconv.FormatFloat(p.Chan7, 'G', 8, 64) + "," +
-		strconv.FormatFloat(p.Chan8, 'G', 8, 64) + "," +
-		strconv.FormatInt(int64(p.AccX), 10) + "," +
-		strconv.FormatInt(int64(p.AccY), 10) + "," +
-		strconv.FormatInt(int64(p.AccZ), 10) + "\n")
-	return row.Bytes()
 }
 
 func normalizeInPlace(input []float64) {

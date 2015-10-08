@@ -148,14 +148,22 @@ func (mc *MindControl) saveBDF() {
 		select {
 		case p := <-mc.savePacketChan:
 			ns++
-			files[0].Write(p.Rchan1)
-			files[1].Write(p.Rchan2)
-			files[2].Write(p.Rchan3)
-			files[3].Write(p.Rchan4)
-			files[4].Write(p.Rchan5)
-			files[5].Write(p.Rchan6)
-			files[6].Write(p.Rchan7)
-			files[7].Write(p.Rchan8)
+			val := []byte{p.Rchan1[2], p.Rchan1[1], p.Rchan1[0]}
+			files[0].Write(val)
+			val = []byte{p.Rchan2[2], p.Rchan2[1], p.Rchan2[0]}
+			files[1].Write(val)
+			val = []byte{p.Rchan3[2], p.Rchan3[1], p.Rchan3[0]}
+			files[2].Write(val)
+			val = []byte{p.Rchan4[2], p.Rchan4[1], p.Rchan4[0]}
+			files[3].Write(val)
+			val = []byte{p.Rchan5[2], p.Rchan5[1], p.Rchan5[0]}
+			files[4].Write(val)
+			val = []byte{p.Rchan6[2], p.Rchan6[1], p.Rchan6[0]}
+			files[5].Write(val)
+			val = []byte{p.Rchan7[2], p.Rchan7[1], p.Rchan7[0]}
+			files[6].Write(val)
+			val = []byte{p.Rchan8[2], p.Rchan8[1], p.Rchan8[0]}
+			files[7].Write(val)
 		case <-mc.quitSave:
 			endts := time.Now()
 			duration := strconv.FormatFloat(endts.Sub(startts).Seconds(), 'f', 3, 64)
@@ -218,7 +226,7 @@ func (mc *MindControl) sendPackets() {
 	FFTSize := 250
 	FFTFreq := 50
 
-	filterDesign, err := gofidlib.NewFilterDesign("BpBe4/1-50", samplesPerSecond)
+	filterDesign, err := gofidlib.NewFilterDesign("BpBe4/1-30", samplesPerSecond)
 	if err != nil {
 		log.Fatal("Error creating filter design:", err)
 	}

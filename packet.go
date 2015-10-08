@@ -19,7 +19,7 @@
 package main
 
 import (
-	"github.com/kevinjos/int24"
+	"github.com/kevinjos/openbci-golang-server/int24"
 	"github.com/runningwild/go-fftw/fftw"
 	"math/cmplx"
 	"strconv"
@@ -61,21 +61,6 @@ func (pb *PacketBatcher) batch() {
 	}
 	// pb.deleteEmptyChans()
 }
-
-/*
-func (pb *PacketBatcher) deleteEmptyChans() {
-	for key, val := range pb.Chans {
-		for i, v := range val {
-			if v != 0 {
-				break
-			}
-			if i == len(val)-1 {
-				delete(pb.Chans, key)
-			}
-		}
-	}
-}
-*/
 
 func (pb *PacketBatcher) setFFT() {
 	for key, val := range pb.Chans {
@@ -133,21 +118,21 @@ func (p *Packet) RawChans() map[string][]float64 {
 func encodePacket(p *[33]byte, sq byte, gain *[8]float64, synced bool) *Packet {
 	packet := NewPacket()
 	packet.seqNum = p[1]
-	packet.Chan1 = scaleToMicroVolts(int24.Unmarshal(p[2:5]), gain[0])
+	packet.Chan1 = scaleToMicroVolts(int24.UnmarshalSBE(p[2:5]), gain[0])
 	packet.Rchan1 = p[2:5]
-	packet.Chan2 = scaleToMicroVolts(int24.Unmarshal(p[5:8]), gain[1])
+	packet.Chan2 = scaleToMicroVolts(int24.UnmarshalSBE(p[5:8]), gain[1])
 	packet.Rchan2 = p[5:8]
-	packet.Chan3 = scaleToMicroVolts(int24.Unmarshal(p[8:11]), gain[2])
+	packet.Chan3 = scaleToMicroVolts(int24.UnmarshalSBE(p[8:11]), gain[2])
 	packet.Rchan3 = p[8:11]
-	packet.Chan4 = scaleToMicroVolts(int24.Unmarshal(p[11:14]), gain[3])
+	packet.Chan4 = scaleToMicroVolts(int24.UnmarshalSBE(p[11:14]), gain[3])
 	packet.Rchan4 = p[11:14]
-	packet.Chan5 = scaleToMicroVolts(int24.Unmarshal(p[14:17]), gain[4])
+	packet.Chan5 = scaleToMicroVolts(int24.UnmarshalSBE(p[14:17]), gain[4])
 	packet.Rchan5 = p[14:17]
-	packet.Chan6 = scaleToMicroVolts(int24.Unmarshal(p[17:20]), gain[5])
+	packet.Chan6 = scaleToMicroVolts(int24.UnmarshalSBE(p[17:20]), gain[5])
 	packet.Rchan6 = p[17:20]
-	packet.Chan7 = scaleToMicroVolts(int24.Unmarshal(p[20:23]), gain[6])
+	packet.Chan7 = scaleToMicroVolts(int24.UnmarshalSBE(p[20:23]), gain[6])
 	packet.Rchan7 = p[20:23]
-	packet.Chan8 = scaleToMicroVolts(int24.Unmarshal(p[23:26]), gain[7])
+	packet.Chan8 = scaleToMicroVolts(int24.UnmarshalSBE(p[23:26]), gain[7])
 	packet.Rchan8 = p[23:26]
 	packet.AccX = convert16bitTo32bit(p[26:28])
 	packet.AccY = convert16bitTo32bit(p[28:30])
