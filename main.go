@@ -22,15 +22,20 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/kevinjos/openbci-driver"
 )
 
-var addr = flag.String("addr", ":8888", "http service address")
-var location = flag.String("loc", "/dev/ttyUSB0", "serial mount point")
-var baud = flag.Int("baud", 115200, "serial baud rate")
-var readTimeout = time.Millisecond
+var (
+	addr        = flag.String("addr", ":8888", "http service address")
+	location    = flag.String("loc", "/dev/ttyUSB0", "serial mount point")
+	baud        = flag.Int("baud", 115200, "serial baud rate")
+	readTimeout = time.Millisecond
+	versionFlag = flag.Bool("version", false, "Print version info and exit.")
+	buildInfo   string
+)
 
 const (
 	channels         = 8
@@ -39,10 +44,16 @@ const (
 	RawMsgSize       = 30
 )
 
-func main() {
+func init() {
 	flag.DurationVar(&readTimeout, "rt", 100*time.Millisecond, "serial readtimeout in milliseconds")
 	flag.Parse()
+	if *versionFlag {
+		log.Printf("%s\n", buildInfo)
+		os.Exit(0)
+	}
+}
 
+func main() {
 	h := NewHub()
 
 	device, err := openbci.NewDevice(*location, *baud, readTimeout)
