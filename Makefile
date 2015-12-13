@@ -61,7 +61,7 @@ endif
 ifeq ($(strip $(findstring nodejs, $(wildcard /usr/bin/*))),nodejs)
 	@echo "found nodejs binary, building bundle"
 	/usr/bin/nodejs js/build/node_modules/browserify/bin/cmd.js js/3dplots.js -o js/libs/bundle.js
-else ($(strip $(findstring node, $(wildcard /usr/bin/*))),node)
+else ifeq ($(strip $(findstring node, $(wildcard /usr/bin/*))),node)
 	@echo "found node binary, building bundle"
 	js/build/node_modules/browserify/bin/cmd.js js/3dplots.js -o js/libs/bundle.js
 else
