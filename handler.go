@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/golang/glog"
 	"github.com/kevinjos/openbci-driver"
 )
 
@@ -167,6 +168,7 @@ func (handle *Handle) startHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
+	glog.Info("Starting data stream")
 	handle.mc.SerialDevice.Write([]byte{openbci.Command["start"]})
 }
 
@@ -175,6 +177,7 @@ func (handle *Handle) stopHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
+	glog.Info("Stopping data stream")
 	handle.mc.SerialDevice.Write([]byte{openbci.Command["stop"]})
 }
 

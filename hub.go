@@ -8,6 +8,8 @@ package main
 
 import (
 	"net/http"
+
+	"github.com/golang/glog"
 )
 
 // hub maintains the set of active connections and broadcasts messages to the
@@ -37,6 +39,7 @@ func NewHub() *hub {
 
 func (h *hub) Close() {
 	for c, _ := range h.connections {
+		glog.Infof("Closing websocket connection from [%s]\n", c.wsConn.RemoteAddr())
 		c.wsConn.Close()
 		h.unregister <- c
 	}
@@ -49,6 +52,7 @@ func (h *hub) Run() {
 	for {
 		select {
 		case c := <-h.register:
+			glog.Infof("Opening websocket connection from [%s]\n", c.wsConn.RemoteAddr())
 			h.connections[c] = true
 		case c := <-h.unregister:
 			if _, ok := h.connections[c]; ok {

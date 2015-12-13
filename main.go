@@ -55,6 +55,8 @@ func init() {
 }
 
 func main() {
+	defer glog.Flush()
+	glog.Infoln("Starting eeg-server")
 	h := NewHub()
 	defer h.Close()
 
@@ -104,4 +106,5 @@ func main() {
 		}
 	}
 	run(shutdown)
+	glog.Infoln("Stoping eeg-server")
 }
