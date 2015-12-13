@@ -4,6 +4,8 @@ import (
 	"io"
 	"log"
 	"time"
+
+	"github.com/kevinjos/openbci-driver"
 )
 
 //DecodeStream implements the openbci packet protocol to
@@ -41,11 +43,11 @@ func DecodeStream(packet chan *Packet, gain chan *[8]float64, quit chan bool,
 			b = buf[0]
 			switch readstate {
 			case 0:
-				if b == '\xc0' {
+				if b == openbci.Command["footer"] {
 					readstate++
 				}
 			case 1:
-				if b == '\xa0' {
+				if b == openbci.Command["header"] {
 					thisPacket[0] = b
 					readstate++
 				} else {
@@ -75,7 +77,7 @@ func DecodeStream(packet chan *Packet, gain chan *[8]float64, quit chan bool,
 				readstate = 4
 			case 4:
 				switch {
-				case b == '\xc0':
+				case b == openbci.Command["footer"]:
 					thisPacket[32] = b
 					lastPacket = thisPacket
 					if syncPktCtr > syncPktThresh {
@@ -84,7 +86,7 @@ func DecodeStream(packet chan *Packet, gain chan *[8]float64, quit chan bool,
 						syncPktCtr++
 					}
 					readstate = 1
-				case b != '\xc0':
+				case b != openbci.Command["footer"]:
 					readstate = 0
 					fallthrough
 				case syncPktCtr > syncPktThresh:

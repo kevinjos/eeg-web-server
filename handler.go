@@ -167,7 +167,7 @@ func (handle *Handle) startHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	handle.mc.SerialDevice.Write(openbci.Command["start"])
+	handle.mc.SerialDevice.Write([]byte{openbci.Command["start"]})
 }
 
 func (handle *Handle) stopHandler(w http.ResponseWriter, r *http.Request) {
@@ -175,7 +175,7 @@ func (handle *Handle) stopHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	handle.mc.SerialDevice.Write(openbci.Command["stop"])
+	handle.mc.SerialDevice.Write([]byte{openbci.Command["stop"]})
 }
 
 func (handle *Handle) saveHandler(w http.ResponseWriter, r *http.Request) {
@@ -198,24 +198,11 @@ func (handle *Handle) resetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	resume := make(chan bool)
 	handle.mc.pauseRead <- resume
-	_, err := handle.mc.SerialDevice.Write(openbci.Command["reset"])
+	_, err := handle.mc.SerialDevice.Write([]byte{openbci.Command["reset"]})
 	if err != nil {
 		fmt.Printf("error reseting device: %s\n", err)
 	}
 	resume <- true
-}
-
-func (handle *Handle) testHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", 405)
-		return
-	}
-	handle.mc.genTesting = !handle.mc.genTesting
-	if handle.mc.genTesting == false {
-		handle.mc.quitGenTest <- true
-	} else {
-		go genTestPackets(handle.mc.PacketChan, handle.mc.quitGenTest)
-	}
 }
 
 func (handle *Handle) fftHandler(w http.ResponseWriter, r *http.Request) {

@@ -86,7 +86,6 @@ func main() {
 	http.HandleFunc("/stop", handle.stopHandler)
 	http.HandleFunc("/close", handle.closeHandler)
 	http.HandleFunc("/save", handle.saveHandler)
-	http.HandleFunc("/test", handle.testHandler)
 	http.HandleFunc("/js/", handle.jsHandler)
 	http.HandleFunc("/static/", handle.cssHandler)
 	http.HandleFunc("/bootstrap/", handle.bootstrapHandler)
