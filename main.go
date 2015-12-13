@@ -20,6 +20,7 @@ package main
 
 import (
 	"flag"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -29,11 +30,11 @@ import (
 )
 
 var (
-	addr        = flag.String("addr", ":8888", "http service address")
-	location    = flag.String("loc", "/dev/ttyUSB0", "serial mount point")
+	addr        = flag.String("addr", "", "http service address")
+	location    = flag.String("loc", "", "serial mount point")
 	baud        = flag.Int("baud", 115200, "serial baud rate")
-	readTimeout = time.Millisecond
 	versionFlag = flag.Bool("version", false, "Print version info and exit.")
+	readTimeout = time.Millisecond
 	buildInfo   string
 )
 
@@ -55,15 +56,21 @@ func init() {
 
 func main() {
 	h := NewHub()
+	defer h.Close()
 
-	device, err := openbci.NewDevice(*location, *baud, readTimeout)
-	if err != nil {
-		log.Fatalf("error opening device: %s\n", err)
+	var (
+		device io.ReadWriteCloser
+		err    error
+	)
+	if *location == "" {
+		device = openbci.NewMockDevice()
+	} else {
+		device, err = openbci.NewDevice(*location, *baud, readTimeout)
+		if err != nil {
+			log.Fatalf("error opening device: %s\n", err)
+		}
 	}
-	defer func() {
-		device.Close()
-		h.Close()
-	}()
+	defer device.Close()
 
 	shutdown := make(chan bool, 1)
 	mc := NewMindControl(h.broadcast, shutdown, device)
