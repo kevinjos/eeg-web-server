@@ -7,13 +7,16 @@ COMMIT_ID := $(shell git rev-parse --short HEAD)
 SDK_INFO := $(shell go version)
 LD_FLAGS := '-X "main.buildInfo=Version: $(VERSION), commitID: $(COMMIT_ID), build date: $(DATE), SDK: $(SDK_INFO)"'
 
-all: clean binaries jslibs
+all: clean install jslibs
 
 test:
 	go test
 
 binaries: test 
 	GOOS=linux go build -ldflags $(LD_FLAGS) -o $(NAME)-linux-$(ARCH)
+
+install: binaries
+	mv $(NAME)-linux-$(ARCH) $(shell echo $$GOPATH)/bin/
 
 clean: 
 	go clean
