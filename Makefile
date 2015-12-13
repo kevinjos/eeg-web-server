@@ -38,18 +38,32 @@ ifeq ($(strip $(findstring gl-plot3d, $(wildcard js/build/node_modules/*))),)
 	echo "missing gl-plot3d node module for 3d plots, calling npm"
 	npm install --prefix ./js/build gl-plot3d
 else
-	@echo "gl-plot3d node modulel exists, moving on"
+	@echo "gl-plot3d node module exists, moving on"
 endif
 ifeq ($(strip $(findstring ndarray, $(wildcard js/build/node_modules/*))),)
 	echo "missing ndarray node module for 3d plots, calling npm"
 	npm install --prefix ./js/build ndarray
 else
-	@echo "ndarray node modulel exists, moving on"
+	@echo "ndarray node module exists, moving on"
 endif
 ifeq ($(strip $(findstring gl-surface3d, $(wildcard js/build/node_modules/*))),)
 	echo "missing gl-surface3d node module for 3d plots, calling npm"
 	npm install --prefix ./js/build gl-surface3d
 else
-	@echo "gl-surface3d node modulel exists, moving on"
+	@echo "gl-surface3d node module exists, moving on"
 endif
-	browserify js/3dplots.js -o js/libs/bundle.js
+ifeq ($(strip $(findstring browserify, $(wildcard js/build/node_modules/*))),)
+	echo "missing browserify node module for 3d plots, calling npm"
+	npm install --prefix ./js/build browserify
+else
+	@echo "browserify node module exists, moving on"
+endif
+ifeq ($(strip $(findstring nodejs, $(wildcard /usr/bin/*))),nodejs)
+	@echo "found nodejs binary, building bundle"
+	/usr/bin/nodejs js/build/node_modules/browserify/bin/cmd.js js/3dplots.js -o js/libs/bundle.js
+else ($(strip $(findstring node, $(wildcard /usr/bin/*))),node)
+	@echo "found node binary, building bundle"
+	js/build/node_modules/browserify/bin/cmd.js js/3dplots.js -o js/libs/bundle.js
+else
+	@echo "no node binary found, must install node"
+endif
