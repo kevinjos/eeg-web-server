@@ -19,11 +19,11 @@ package main
 
 import (
 	"io"
-	"log"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/golang/glog"
 	"github.com/kevinjos/goedf"
 	"github.com/kevinjos/gofidlib"
 )
@@ -91,7 +91,7 @@ func (mc *MindControl) saveBDF() {
 	var ns int
 	wd, err := os.Getwd()
 	if err != nil {
-		log.Println(err)
+		glog.Errorln(err)
 		return
 	}
 	wd += "/data/"
@@ -99,7 +99,7 @@ func (mc *MindControl) saveBDF() {
 	tmpdir := wd + strconv.FormatInt(time.Now().Unix(), 10)
 	err = os.MkdirAll(tmpdir, 0777)
 	if err != nil {
-		log.Println(err)
+		glog.Errorln(err)
 		return
 	}
 	for i := 0; i < channels; i++ {
@@ -107,7 +107,7 @@ func (mc *MindControl) saveBDF() {
 		file, err := os.Create(tmpdir + "/" + fn)
 		files[i] = file
 		if err != nil {
-			log.Println(err)
+			glog.Errorln(err)
 			return
 		}
 	}
@@ -118,7 +118,7 @@ func (mc *MindControl) saveBDF() {
 		}
 		err = os.RemoveAll(tmpdir)
 		if err != nil {
-			log.Println(err)
+			glog.Errorln(err)
 		}
 	}()
 	startts := time.Now()
@@ -188,31 +188,31 @@ func (mc *MindControl) saveBDF() {
 				biosigio.NumSamples(numsamples),
 				biosigio.NSReserved(nsreserved))
 			if err != nil {
-				log.Println(err)
+				glog.Errorln(err)
 			}
 			bdf := biosigio.NewBDF(h, []*biosigio.BDFData{})
 			buf, err := biosigio.MarshalBDF(bdf)
 			if err != nil {
-				log.Println(err)
+				glog.Errorln(err)
 			}
 			outfn := wd + strconv.FormatInt(endts.Unix(), 10) + ".edf"
 			outfd, err := os.Create(outfn)
 			if err != nil {
-				log.Println(err)
+				glog.Errorln(err)
 			}
 			defer outfd.Close()
 			_, err = outfd.Write(buf)
 			if err != nil {
-				log.Println(err)
+				glog.Errorln(err)
 			}
 			for _, fd := range files {
 				_, err = fd.Seek(0, 0)
 				if err != nil {
-					log.Println(err)
+					glog.Errorln(err)
 				}
 				_, err := io.Copy(outfd, fd)
 				if err != nil {
-					log.Println(err)
+					glog.Errorln(err)
 				}
 			}
 			return
@@ -228,7 +228,7 @@ func (mc *MindControl) sendPackets() {
 
 	filterDesign, err := gofidlib.NewFilterDesign("BpBe4/1-30", samplesPerSecond)
 	if err != nil {
-		log.Fatal("Error creating filter design:", err)
+		glog.Fatal("Error creating filter design:", err)
 	}
 
 	filter := make([]*gofidlib.Filter, 8)

@@ -2,9 +2,9 @@ package main
 
 import (
 	"io"
-	"log"
 	"time"
 
+	"github.com/golang/glog"
 	"github.com/kevinjos/openbci-driver"
 )
 
@@ -38,7 +38,7 @@ func DecodeStream(packet chan *Packet, gain chan *[8]float64, quit chan bool,
 			if err == io.EOF {
 				continue
 			} else if err != nil {
-				log.Fatalf("error reading from device: %s", err)
+				glog.Fatalf("error reading from device: %s", err)
 			}
 			b = buf[0]
 			switch readstate {
@@ -57,7 +57,7 @@ func DecodeStream(packet chan *Packet, gain chan *[8]float64, quit chan bool,
 				thisPacket[1] = b
 				seqDiff = difference(b, lastPacket[1])
 				if seqDiff > 1 && syncPktCtr > syncPktThresh {
-					log.Printf("%d packets behind\n", seqDiff)
+					glog.Infof("%d packets behind\n", seqDiff)
 				}
 				for seqDiff > 1 {
 					lastPacket[1]++
@@ -70,7 +70,7 @@ func DecodeStream(packet chan *Packet, gain chan *[8]float64, quit chan bool,
 				for j := 2; j < 32; j++ {
 					_, err = device.Read(buf)
 					if err != nil {
-						log.Fatalf("error reading from device: %s\n", err)
+						glog.Fatalf("error reading from device: %s\n", err)
 					}
 					thisPacket[j] = buf[0]
 				}
@@ -90,7 +90,7 @@ func DecodeStream(packet chan *Packet, gain chan *[8]float64, quit chan bool,
 					readstate = 0
 					fallthrough
 				case syncPktCtr > syncPktThresh:
-					log.Println("Footer out of sync")
+					glog.Errorln("Footer out of sync")
 				}
 			}
 		}

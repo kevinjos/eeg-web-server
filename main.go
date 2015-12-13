@@ -21,11 +21,11 @@ package main
 import (
 	"flag"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"time"
 
+	"github.com/golang/glog"
 	"github.com/kevinjos/openbci-driver"
 )
 
@@ -49,7 +49,7 @@ func init() {
 	flag.DurationVar(&readTimeout, "rt", 100*time.Millisecond, "serial readtimeout in milliseconds")
 	flag.Parse()
 	if *versionFlag {
-		log.Printf("%s\n", buildInfo)
+		glog.Infof("%s\n", buildInfo)
 		os.Exit(0)
 	}
 }
@@ -67,7 +67,7 @@ func main() {
 	} else {
 		device, err = openbci.NewDevice(*location, *baud, readTimeout)
 		if err != nil {
-			log.Fatalf("error opening device: %s\n", err)
+			glog.Fatalf("error opening device: %s\n", err)
 		}
 	}
 	defer device.Close()
