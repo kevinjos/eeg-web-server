@@ -21,8 +21,10 @@ package main
 import (
 	"flag"
 	"io"
+	"log"
 	"net/http"
 	"os"
+	"runtime/pprof"
 	"time"
 
 	"github.com/golang/glog"
@@ -34,6 +36,7 @@ var (
 	location    = flag.String("loc", "", "serial mount point")
 	baud        = flag.Int("baud", 115200, "serial baud rate")
 	versionFlag = flag.Bool("version", false, "Print version info and exit.")
+	cpuprofile  = flag.String("cpuprofile", "", "write cpu profile to file")
 	readTimeout = time.Millisecond
 	buildInfo   string
 )
@@ -59,6 +62,15 @@ func main() {
 	glog.Infoln("Starting eeg-server")
 	h := NewHub()
 	defer h.Close()
+
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
 
 	var (
 		device io.ReadWriteCloser
