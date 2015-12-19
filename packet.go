@@ -19,10 +19,11 @@
 package main
 
 import (
-	"github.com/kevinjos/openbci-golang-server/int24"
-	"github.com/runningwild/go-fftw/fftw"
 	"math/cmplx"
 	"strconv"
+
+	"github.com/kevinjos/eeg-web-server/int24"
+	"github.com/runningwild/go-fftw/fftw"
 )
 
 type PacketBatcher struct {
